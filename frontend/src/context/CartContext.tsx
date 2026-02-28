@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 import { CartItem, MenuItem, SelectedCustomization } from "@/types/menu";
 
 interface CartContextType {
@@ -28,11 +28,23 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 const VALID_POSTCODE_PREFIXES = ["SE9", "SE18", "SE2", "DA16", "DA15", "BR7"];
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [orderCount, setOrderCount] = useState(4); // Mock: user has completed 4 orders
+  const [items, setItems] = useState<CartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem("cart_items");
+      return saved ? JSON.parse(saved) : [];
+    } catch (err) {
+      console.warn("Failed to restore cart from localStorage:", err);
+      return [];
+    }
+  });
+  const [orderCount] = useState(4); // Mock: user has completed 4 orders
   const [isRewardApplied, setIsRewardApplied] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"delivery" | "collection">("delivery");
   const [postcode, setPostcode] = useState("");
+
+  useEffect(() => {
+    localStorage.setItem("cart_items", JSON.stringify(items));
+  }, [items]);
 
   // User has reward if they completed 5 orders (next order is the 6th - 50% off)
   const hasReward = orderCount >= 5;
