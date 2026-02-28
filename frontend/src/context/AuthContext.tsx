@@ -1,18 +1,18 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import {
-  User,
+import { auth } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
+
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
 } from "firebase/auth";
-import { auth } from "@/lib/firebase";
 
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
-  signUp: (name: string, email: string, password: string) => Promise<User>;
+  signUp: (email: string, password: string) => Promise<User>;
   signIn: (email: string, password: string) => Promise<User>;
   signOutUser: () => Promise<void>;
 }
@@ -34,12 +34,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<AuthContextValue>(() => ({
     user,
     isLoading,
-    signUp: async (name, email, password) => {
+    signUp: async (email, password) => {
       const result = await createUserWithEmailAndPassword(auth, email, password);
-      const trimmedName = name.trim();
-      if (trimmedName) {
-        await updateProfile(result.user, { displayName: trimmedName });
-      }
       return result.user;
     },
     signIn: async (email, password) => {

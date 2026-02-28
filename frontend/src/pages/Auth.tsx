@@ -18,6 +18,7 @@ const Auth = () => {
   const { toast } = useToast();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -25,8 +26,14 @@ const Auth = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setIsSubmitting(true);
     setError("");
+
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters long.");
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
       if (mode === "login") {

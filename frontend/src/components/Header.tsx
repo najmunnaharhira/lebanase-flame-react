@@ -1,13 +1,11 @@
 import logo from "@/assets/logo.png";
+import logo from "@/assets/logo.png";
 import { MapPin, Menu, Phone, ShoppingBag } from "lucide-react";
+import { MapPin, Menu, Phone, User } from "lucide-react";
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { AuthModal } from "@/components/AuthModal";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
-import { useCart } from "@/context/CartContext";
 
 const navLinks = [
   { name: "Home", path: "/" },
@@ -18,15 +16,8 @@ const navLinks = [
 
 export const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const location = useLocation();
   const { user } = useAuth();
-  const { totalItems } = useCart();
-
-  const avatarLabel =
-    user?.displayName?.trim().charAt(0)?.toUpperCase() ||
-    user?.email?.charAt(0)?.toUpperCase() ||
-    "U";
 
   return (
     <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border">
@@ -76,29 +67,11 @@ export const Header = () => {
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground" asChild>
-              <Link to="/cart" aria-label="Open cart">
-                <ShoppingBag className="w-5 h-5" />
-                {totalItems > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-[11px] leading-5 text-center font-semibold">
-                    {totalItems > 99 ? "99+" : totalItems}
-                  </span>
-                )}
+            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground" asChild>
+              <Link to={user ? "/profile" : "/auth"}>
+                <User className="w-5 h-5" />
               </Link>
             </Button>
-            {user ? (
-              <Button variant="ghost" className="p-0 h-auto" asChild>
-                <Link to="/profile" aria-label="Open profile">
-                  <Avatar className="h-9 w-9 border border-border">
-                    <AvatarFallback className="text-sm font-semibold">{avatarLabel}</AvatarFallback>
-                  </Avatar>
-                </Link>
-              </Button>
-            ) : (
-              <Button variant="outline" onClick={() => setIsAuthModalOpen(true)}>
-                Sign in
-              </Button>
-            )}
             <Button variant="flame" asChild>
               <Link to="/menu">Order Now</Link>
             </Button>
@@ -106,6 +79,18 @@ export const Header = () => {
 
           {/* Mobile Menu */}
           <div className="flex md:hidden items-center gap-2">
+            {/* Mobile cart badge */}
+            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground" asChild>
+              <Link to="/cart">
+                <ShoppingCart className="w-5 h-5" />
+                {totalItems > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                    {totalItems > 9 ? "9+" : totalItems}
+                  </span>
+                )}
+              </Link>
+            </Button>
+
             <Sheet open={isOpen} onOpenChange={setIsOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -130,40 +115,16 @@ export const Header = () => {
                       </Link>
                     ))}
                     <Link
-                      to="/cart"
+                      to={user ? "/profile" : "/auth"}
                       onClick={() => setIsOpen(false)}
                       className={`text-lg font-body font-medium py-2 px-4 rounded-lg transition-colors ${
-                        location.pathname === "/cart"
+                        location.pathname === "/profile" || location.pathname === "/auth"
                           ? "bg-primary/10 text-primary"
                           : "text-foreground hover:bg-muted"
                       }`}
                     >
-                      Cart {totalItems > 0 ? `(${totalItems})` : ""}
+                      Account
                     </Link>
-                    {user ? (
-                      <Link
-                        to="/profile"
-                        onClick={() => setIsOpen(false)}
-                        className={`text-lg font-body font-medium py-2 px-4 rounded-lg transition-colors ${
-                          location.pathname === "/profile"
-                            ? "bg-primary/10 text-primary"
-                            : "text-foreground hover:bg-muted"
-                        }`}
-                      >
-                        Account
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsOpen(false);
-                          setIsAuthModalOpen(true);
-                        }}
-                        className="text-left text-lg font-body font-medium py-2 px-4 rounded-lg transition-colors text-foreground hover:bg-muted"
-                      >
-                        Sign in
-                      </button>
-                    )}
                   </nav>
                   <div className="mt-auto pb-8">
                     <Button variant="flame" className="w-full" size="lg" asChild>
@@ -178,7 +139,6 @@ export const Header = () => {
           </div>
         </div>
       </div>
-      <AuthModal open={isAuthModalOpen} onOpenChange={setIsAuthModalOpen} />
     </header>
   );
 };
