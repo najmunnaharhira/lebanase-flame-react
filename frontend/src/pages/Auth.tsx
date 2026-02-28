@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { toast } from "sonner";
 
 const Auth = () => {
   const navigate = useNavigate();
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -18,14 +20,20 @@ const Auth = () => {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setIsSubmitting(true);
     setError("");
+
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters long.");
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
       if (mode === "login") {
         await signIn(email, password);
       } else {
-        await signUp(email, password);
+        await signUp(email, password, name || undefined);
       }
       navigate("/profile");
     } catch (err) {
@@ -50,6 +58,19 @@ const Auth = () => {
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === "signup" && (
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Your full name"
+                  required
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -70,6 +91,7 @@ const Auth = () => {
                 required
                 minLength={6}
               />
+              <p className="text-xs text-muted-foreground">Minimum 6 characters</p>
             </div>
             {error && (
               <p className="text-sm text-destructive">{error}</p>
