@@ -1,16 +1,23 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+
+const isStrongPassword = (password: string) => {
+  return password.trim().length >= 6 && /[A-Za-z]/.test(password) && /\d/.test(password);
+};
 
 const Auth = () => {
   const navigate = useNavigate();
   const { signIn, signUp } = useAuth();
+  const { toast } = useToast();
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,8 +31,19 @@ const Auth = () => {
     try {
       if (mode === "login") {
         await signIn(email, password);
+        toast({ title: "Signed in", description: "Welcome back to Lebanese Flames." });
       } else {
-        await signUp(email, password);
+        if (!isStrongPassword(password)) {
+          toast({
+            variant: "destructive",
+            title: "Weak password",
+            description: "Use at least 6 characters with letters and numbers.",
+          });
+          setIsSubmitting(false);
+          return;
+        }
+        await signUp(name, email, password);
+        toast({ title: "Account created", description: "Your account is ready." });
       }
       navigate("/profile");
     } catch (err) {
@@ -50,6 +68,17 @@ const Auth = () => {
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === "signup" && (
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -70,6 +99,9 @@ const Auth = () => {
                 required
                 minLength={6}
               />
+              {mode === "signup" && (
+                <p className="text-xs text-muted-foreground">At least 6 characters with letters and numbers.</p>
+              )}
             </div>
             {error && (
               <p className="text-sm text-destructive">{error}</p>
