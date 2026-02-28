@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { apiRequest } from "@/lib/api";
 import { Address, OrderRecord, UserProfile } from "@/types/order";
+import { Package } from "lucide-react";
 
 const emptyAddress: Address = {
   fullName: "",
@@ -211,21 +212,39 @@ const Profile = () => {
                 <div className="space-y-4">
                   {orders.map((order) => (
                     <div key={order._id} className="border border-border rounded-xl p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-body font-semibold text-foreground">
-                            Order #{order._id.slice(-6)}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(order.createdAt).toLocaleString()}
-                          </p>
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="h-12 w-12 rounded-lg border border-border bg-muted/40 overflow-hidden flex items-center justify-center">
+                            {order.items[0]?.menuItem?.image ? (
+                              <img
+                                src={order.items[0].menuItem.image}
+                                alt={order.items[0].menuItem.name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Package className="h-5 w-5 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-body font-semibold text-foreground">
+                              {order.items[0]?.menuItem?.name || `Order #${order._id.slice(-6)}`}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {new Date(order.createdAt).toLocaleString()}
+                            </p>
+                          </div>
                         </div>
-                        <span className="text-sm font-medium text-primary">{order.status}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-primary">• {order.status}</span>
+                          <Button size="sm" variant="outline" asChild>
+                            <Link to={`/order-tracking/${order._id}`}>Track order</Link>
+                          </Button>
+                        </div>
                       </div>
                       <div className="mt-3 text-sm text-muted-foreground">
                         {order.items.slice(0, 2).map((item) => (
-                          <span key={item.menuItem.id} className="block">
-                            {item.quantity}× {item.menuItem.name}
+                          <span key={`${order._id}-${item.menuItem.id}-${item.quantity}`} className="block">
+                            {item.menuItem.name} x {item.quantity}
                           </span>
                         ))}
                         {order.items.length > 2 && <span>+ {order.items.length - 2} more</span>}

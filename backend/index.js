@@ -1,24 +1,24 @@
-import express from "express";
+import Stripe from "stripe";
 import cors from "cors";
 import dotenv from "dotenv";
-import mongoose from "mongoose";
+import express from "express";
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import { randomUUID } from "crypto";
+import mongoose from "mongoose";
 import multer from "multer";
-import sharp from "sharp";
-import Stripe from "stripe";
 import nodemailer from "nodemailer";
+import path from "path";
+import sharp from "sharp";
 import twilio from "twilio";
-import { MenuItem } from "./models/MenuItem.js";
-import { Category } from "./models/Category.js";
-import { Order } from "./models/Order.js";
-import { UserProfile } from "./models/UserProfile.js";
-import { BusinessSettings } from "./models/BusinessSettings.js";
-import { SupportMessage } from "./models/SupportMessage.js";
-import { Promotion } from "./models/Promotion.js";
+import { randomUUID } from "crypto";
+import { fileURLToPath } from "url";
 import { AbandonedCart } from "./models/AbandonedCart.js";
+import { BusinessSettings } from "./models/BusinessSettings.js";
+import { Category } from "./models/Category.js";
+import { MenuItem } from "./models/MenuItem.js";
+import { Order } from "./models/Order.js";
+import { Promotion } from "./models/Promotion.js";
+import { SupportMessage } from "./models/SupportMessage.js";
+import { UserProfile } from "./models/UserProfile.js";
 
 dotenv.config({ path: new URL("./.env", import.meta.url) });
 
@@ -67,6 +67,26 @@ const upload = multer({
     callback(null, true);
   },
 });
+
+const MENU_IMAGE_MAX_WIDTH = 1024;
+const MENU_IMAGE_MAX_HEIGHT = 1024;
+const MENU_IMAGE_QUALITY = 82;
+
+const processAndStoreMenuImage = async (buffer) => {
+  const filename = `${Date.now()}-${randomUUID()}.webp`;
+  const outputPath = path.join(uploadsPath, filename);
+
+  await sharp(buffer)
+    .rotate()
+    .resize(MENU_IMAGE_MAX_WIDTH, MENU_IMAGE_MAX_HEIGHT, {
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .webp({ quality: MENU_IMAGE_QUALITY })
+    .toFile(outputPath);
+
+  return filename;
+};
 
 const parseAllowedIps = (value) => {
   if (!value) return [];
@@ -249,8 +269,26 @@ const serializeOrder = (order) => {
   const { __v, ...rest } = order;
   return {
     ...rest,
+    status: normalizeOrderStatus(order.status),
     _id: order._id?.toString(),
   };
+};
+
+const ORDER_STATUS_MAP = {
+  "Order Received": "Food Processing",
+  Preparing: "Food Processing",
+  "Ready for Collection": "Out for delivery",
+  "Out for Delivery": "Out for delivery",
+  Completed: "Delivered",
+  "Food Processing": "Food Processing",
+  "Out for delivery": "Out for delivery",
+  Delivered: "Delivered",
+};
+
+const normalizeOrderStatus = (status) => {
+  if (typeof status !== "string") return "Food Processing";
+  const trimmed = status.trim();
+  return ORDER_STATUS_MAP[trimmed] || "Food Processing";
 };
 
 const serializeCategory = (category) => {
@@ -736,23 +774,14 @@ app.post(
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    const ext =
-      req.file.mimetype === "image/png"
-        ? "png"
-        : req.file.mimetype === "image/webp"
-          ? "webp"
-          : "jpg";
-    const filename = `${Date.now()}-${randomUUID()}.${ext}`;
-    const outputPath = path.join(uploadsPath, filename);
-
-    await sharp(req.file.buffer)
-      .resize(800, 800, { fit: "cover", position: "centre" })
-      .toFormat(ext === "jpg" ? "jpeg" : ext, { quality: 85 })
-      .toFile(outputPath);
-
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const url = `${baseUrl}/uploads/${filename}`;
-    return res.status(201).json({ url });
+    try {
+      const filename = await processAndStoreMenuImage(req.file.buffer);
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const url = `${baseUrl}/uploads/${filename}`;
+      return res.status(201).json({ url });
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to process image" });
+    }
   },
 );
 
@@ -995,27 +1024,24 @@ app.patch("/orders/:id/status", requireAdmin, async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    const previousStatus = order.status;
-    order.status = status;
+    const previousStatus = normalizeOrderStatus(order.status);
+    const normalizedStatus = normalizeOrderStatus(status);
+    order.status = normalizedStatus;
     await order.save();
 
     const contactPhone = order.address?.phone;
     if (contactPhone) {
       sendSmsNotification({
         phone: contactPhone,
-        message: `Order #${order._id.toString().slice(-6)} is now ${status}.`,
+        message: `Order #${order._id.toString().slice(-6)} is now ${normalizedStatus}.`,
       });
       sendWhatsAppNotification({
         phone: contactPhone,
-        message: `Order #${order._id.toString().slice(-6)} is now ${status}.`,
+        message: `Order #${order._id.toString().slice(-6)} is now ${normalizedStatus}.`,
       });
     }
 
-    if (
-      status === "Completed" &&
-      previousStatus !== "Completed" &&
-      order.userId
-    ) {
+    if (normalizedStatus === "Delivered" && previousStatus !== "Delivered" && order.userId) {
       const profile = await UserProfile.findOne({ uid: order.userId });
       if (profile) {
         const nextStamps = (profile.loyaltyStamps || 0) + 1;
@@ -1033,7 +1059,7 @@ app.patch("/orders/:id/status", requireAdmin, async (req, res) => {
       }
     }
 
-    if (status === "Completed" && previousStatus !== "Completed") {
+    if (normalizedStatus === "Delivered" && previousStatus !== "Delivered") {
       const followUpPhone = order.address?.phone;
       if (followUpPhone) {
         sendSmsNotification({

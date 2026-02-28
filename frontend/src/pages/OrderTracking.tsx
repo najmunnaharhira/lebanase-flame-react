@@ -7,12 +7,25 @@ import { apiRequest } from "@/lib/api";
 import { OrderRecord } from "@/types/order";
 
 const STATUS_STEPS = [
-  "Order Received",
-  "Preparing",
-  "Ready for Collection",
-  "Out for Delivery",
-  "Completed",
+  "Food Processing",
+  "Out for delivery",
+  "Delivered",
 ];
+
+const normalizeOrderStatus = (status: string) => {
+  const mapping: Record<string, string> = {
+    "Order Received": "Food Processing",
+    Preparing: "Food Processing",
+    "Ready for Collection": "Out for delivery",
+    "Out for Delivery": "Out for delivery",
+    Completed: "Delivered",
+    "Food Processing": "Food Processing",
+    "Out for delivery": "Out for delivery",
+    Delivered: "Delivered",
+  };
+
+  return mapping[status] || "Food Processing";
+};
 
 const OrderTracking = () => {
   const { orderId } = useParams<{ orderId: string }>();
@@ -21,8 +34,8 @@ const OrderTracking = () => {
 
   const currentStep = useMemo(() => {
     if (!order) return 0;
-    const index = STATUS_STEPS.indexOf(order.status);
-    return index >= 0 ? index : 0;
+    const index = STATUS_STEPS.indexOf(normalizeOrderStatus(order.status));
+    return Math.max(index, 0);
   }, [order]);
 
   useEffect(() => {
@@ -90,7 +103,7 @@ const OrderTracking = () => {
 
               <div className="text-sm text-muted-foreground">
                 Current status:{" "}
-                <span className="font-semibold text-foreground">{order.status}</span>
+                <span className="font-semibold text-foreground">{normalizeOrderStatus(order.status)}</span>
               </div>
             </div>
           ) : (

@@ -1,5 +1,5 @@
+import chefImage from "@/assets/chef-plating-dish-stockcake.webp";
 import { Award, Heart, Utensils } from "lucide-react";
-import chefImage from "@/assets/hero-food.jpg";
 
 export const AboutChef = () => {
   return (

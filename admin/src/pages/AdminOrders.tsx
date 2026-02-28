@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { API_BASE_URL } from "@/lib/api";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
 import { OrderRecord } from "@/types/order";
 import { AdminHeader } from "@/components/AdminHeader";
+import { Package } from "lucide-react";
 
 const STATUS_OPTIONS = [
-  "Order Received",
-  "Preparing",
-  "Ready for Collection",
-  "Out for Delivery",
-  "Completed",
+  "Food Processing",
+  "Out for delivery",
+  "Delivered",
 ];
 
 const AdminOrders = () => {
@@ -78,6 +76,84 @@ const AdminOrders = () => {
     navigate("/admin");
   };
 
+  const getSummary = (order: OrderRecord) => {
+    const topItems = order.items.slice(0, 2);
+    const parts = topItems.map((item) => `${item.menuItem.name} x ${item.quantity}`);
+    const remaining = order.items.length - topItems.length;
+    if (remaining > 0) {
+      parts.push(`+${remaining} more`);
+    }
+    return parts.join(", ");
+  };
+
+  const renderOrders = () => {
+    if (isLoading) {
+      return (
+        <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
+          Loading orders...
+        </div>
+      );
+    }
+
+    if (sortedOrders.length === 0) {
+      return (
+        <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
+          No orders yet.
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid gap-4">
+        {sortedOrders.map((order) => (
+          <div key={order._id} className="rounded-2xl border border-border bg-card p-5 shadow-card">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-4">
+                <div className="h-12 w-12 rounded-xl border border-border bg-muted/40 flex items-center justify-center overflow-hidden">
+                  {order.items[0]?.menuItem?.image ? (
+                    <img
+                      src={order.items[0].menuItem.image}
+                      alt={order.items[0].menuItem.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <Package className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <p className="font-body font-semibold text-foreground">{getSummary(order)}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {order.address?.fullName || order.email}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(order.createdAt).toLocaleString()} · {order.deliveryMode}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-foreground">£{order.total.toFixed(2)}</span>
+                <select
+                  aria-label="Order status"
+                  value={order.status}
+                  onChange={(event) => handleStatusChange(order._id, event.target.value)}
+                  className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  {STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <main className="container py-10 md:py-16 space-y-6">
@@ -89,70 +165,7 @@ const AdminOrders = () => {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        {isLoading ? (
-          <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
-            Loading orders...
-          </div>
-        ) : sortedOrders.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
-            No orders yet.
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {sortedOrders.map((order) => (
-              <div key={order._id} className="rounded-2xl border border-border bg-card p-5 shadow-card">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="font-body font-semibold text-foreground">
-                      Order #{order._id.slice(-6)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(order.createdAt).toLocaleString()} · {order.deliveryMode}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {STATUS_OPTIONS.map((status) => (
-                      <Button
-                        key={status}
-                        type="button"
-                        size="sm"
-                        variant={order.status === status ? "flame" : "outline"}
-                        onClick={() => handleStatusChange(order._id, status)}
-                      >
-                        {status}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-3 text-sm text-muted-foreground">
-                  {order.items.map((item) => (
-                    <span key={item.menuItem.id} className="block">
-                      {item.quantity}× {item.menuItem.name}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  {order.invoiceNumber && (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-foreground">
-                      Invoice {order.invoiceNumber}
-                    </span>
-                  )}
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-foreground">
-                    Total £{order.total.toFixed(2)}
-                  </span>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-foreground">
-                    {order.paymentMethod} · {order.paymentStatus}
-                  </span>
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-foreground">
-                    {order.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        {renderOrders()}
       </main>
     </div>
   );

@@ -34,6 +34,8 @@ const AdminMenu = () => {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<MenuItem>>({});
+  const [editImageFile, setEditImageFile] = useState<File | null>(null);
+  const [editImagePreview, setEditImagePreview] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryName, setCategoryName] = useState("");
   const [categoryIcon, setCategoryIcon] = useState("");
@@ -44,8 +46,8 @@ const AdminMenu = () => {
     const trimmed = value.trim();
     if (!trimmed) return "";
     if (trimmed.includes("drive.google.com")) {
-      const fileIdMatch = trimmed.match(/\/file\/d\/([^/]+)/);
-      const openIdMatch = trimmed.match(/[?&]id=([^&]+)/);
+      const fileIdMatch = /\/file\/d\/([^/]+)/.exec(trimmed);
+      const openIdMatch = /[?&]id=([^&]+)/.exec(trimmed);
       const fileId = fileIdMatch?.[1] || openIdMatch?.[1];
       if (fileId) {
         return `https://drive.google.com/uc?export=view&id=${fileId}`;
@@ -70,6 +72,16 @@ const AdminMenu = () => {
     const normalized = normalizeImageUrl(imageUrl);
     setPreviewUrl(normalized);
   }, [imageFile, imageUrl]);
+
+  useEffect(() => {
+    if (editImageFile) {
+      const objectUrl = URL.createObjectURL(editImageFile);
+      setEditImagePreview(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    }
+
+    setEditImagePreview(normalizeImageUrl(editDraft.image || ""));
+  }, [editImageFile, editDraft.image]);
 
   useEffect(() => {
     if (!hasAdminSession()) {
@@ -128,6 +140,7 @@ const AdminMenu = () => {
 
   const handleEditItem = (item: MenuItem) => {
     setEditingId(item.id);
+    setEditImageFile(null);
     setEditDraft({
       name: item.name,
       price: item.price,
@@ -140,13 +153,38 @@ const AdminMenu = () => {
 
   const handleUpdateItem = async (id: string) => {
     try {
+      let image = normalizeImageUrl(editDraft.image || "");
+
+      if (editImageFile) {
+        const formData = new FormData();
+        formData.append("image", editImageFile);
+        const uploadResponse = await fetch(`${API_BASE_URL}/menu/upload`, {
+          method: "POST",
+          headers: getAdminAuthHeaders(),
+          body: formData,
+        });
+
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text();
+          throw new Error(errorText || "Failed to upload image");
+        }
+
+        const uploadResult = await uploadResponse.json();
+        image = uploadResult.url || "";
+      }
+
+      const payload = {
+        ...editDraft,
+        image,
+      };
+
       const response = await fetch(`${API_BASE_URL}/menu/${id}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           ...getAdminAuthHeaders(),
         },
-        body: JSON.stringify(editDraft),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         const errorText = await response.text();
@@ -155,6 +193,7 @@ const AdminMenu = () => {
       const updated = await response.json();
       setMenuItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       setEditingId(null);
+      setEditImageFile(null);
       setEditDraft({});
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to update item");
@@ -680,25 +719,35 @@ const AdminMenu = () => {
                           </option>
                         ))}
                       </select>
-                    <Input
-                      value={editDraft.image || ""}
-                      onChange={(event) =>
-                        setEditDraft((prev) => ({
-                          ...prev,
-                          image: normalizeImageUrl(event.target.value),
-                        }))
-                      }
-                      placeholder="Image URL (Drive/Postimages)"
-                    />
-                      {(editDraft.image || item.image) && (
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => setEditImageFile(event.target.files?.[0] || null)}
+                      />
+                      <Input
+                        value={editDraft.image || ""}
+                        onChange={(event) =>
+                          setEditDraft((prev) => ({
+                            ...prev,
+                            image: normalizeImageUrl(event.target.value),
+                          }))
+                        }
+                        placeholder="Image URL (optional)"
+                      />
+                      {(editImagePreview || editDraft.image || item.image) && (
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => openImageZoom(editDraft.image || item.image || "", item.name)}
+                            onClick={() =>
+                              openImageZoom(
+                                editImagePreview || editDraft.image || item.image || "",
+                                item.name,
+                              )
+                            }
                             className="rounded-lg border border-border p-0.5 hover:border-primary"
                           >
                             <img
-                              src={editDraft.image || item.image}
+                              src={editImagePreview || editDraft.image || item.image}
                               alt={`${item.name} preview`}
                               className="h-12 w-12 rounded-lg object-cover"
                             />
@@ -731,6 +780,7 @@ const AdminMenu = () => {
                           variant="ghost"
                           onClick={() => {
                             setEditingId(null);
+                            setEditImageFile(null);
                             setEditDraft({});
                           }}
                         >
