@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here.
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Lebanese Flames - Warm, appetizing palette */
+    --background: 30 30% 98%;
+    --foreground: 20 20% 15%;
+
+    --card: 30 25% 99%;
+    --card-foreground: 20 20% 15%;
+
+    --popover: 30 25% 99%;
+    --popover-foreground: 20 20% 15%;
+
+    /* Terracotta - Primary brand color */
+    --primary: 15 70% 50%;
+    --primary-foreground: 30 30% 98%;
+
+    /* Olive green - Secondary accent */
+    --secondary: 85 25% 40%;
+    --secondary-foreground: 30 30% 98%;
+
+    /* Warm cream muted */
+    --muted: 35 30% 92%;
+    --muted-foreground: 20 15% 45%;
+
+    /* Golden accent */
+    --accent: 42 85% 55%;
+    --accent-foreground: 20 20% 15%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 30 30% 98%;
+
+    --border: 30 20% 88%;
+    --input: 30 20% 88%;
+    --ring: 15 70% 50%;
+
+    --radius: 0.75rem;
+
+    /* Custom Lebanese Flames tokens */
+    --flame: 15 85% 55%;
+    --flame-glow: 25 90% 60%;
+    --olive: 85 30% 35%;
+    --olive-light: 85 25% 85%;
+    --gold: 42 85% 55%;
+    --cream: 35 40% 95%;
+    --charcoal: 20 20% 15%;
+
+    /* Gradients */
+    --gradient-flame: linear-gradient(135deg, hsl(15 85% 55%), hsl(25 90% 60%));
+    --gradient-warm: linear-gradient(180deg, hsl(30 30% 98%), hsl(35 40% 95%));
+    --gradient-hero: linear-gradient(135deg, hsl(20 20% 15% / 0.85), hsl(15 70% 25% / 0.7));
+
+    /* Shadows */
+    --shadow-soft: 0 4px 20px -4px hsl(20 20% 15% / 0.1);
+    --shadow-card: 0 2px 12px -2px hsl(20 20% 15% / 0.08);
+    --shadow-elevated: 0 12px 40px -8px hsl(20 20% 15% / 0.15);
+  }
+}
+
+:root {
+  --font-display: 'Playfair Display', serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
