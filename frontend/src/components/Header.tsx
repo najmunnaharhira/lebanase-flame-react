@@ -1,6 +1,4 @@
 import logo from "@/assets/logo.png";
-import logo from "@/assets/logo.png";
-import { MapPin, Menu, Phone, ShoppingBag } from "lucide-react";
 import { MapPin, Menu, Phone, User } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
