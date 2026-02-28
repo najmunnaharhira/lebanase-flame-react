@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { Menu, Phone, MapPin, User } from "lucide-react";
+import { Menu, Phone, MapPin, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
+import { AuthModal } from "@/components/AuthModal";
+import { getUserInitials } from "@/lib/utils";
 import logo from "@/assets/logo.png";
 
 const navLinks = [
@@ -15,10 +18,15 @@ const navLinks = [
 
 export const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const location = useLocation();
   const { user } = useAuth();
+  const { totalItems } = useCart();
+
+  const userInitials = getUserInitials(user?.displayName, user?.email);
 
   return (
+    <>
     <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border">
       {/* Top bar */}
       <div className="bg-primary text-primary-foreground py-2 px-4">
@@ -66,11 +74,36 @@ export const Header = () => {
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground" asChild>
-              <Link to={user ? "/profile" : "/auth"}>
-                <User className="w-5 h-5" />
+            {/* Cart icon with badge */}
+            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground" asChild>
+              <Link to="/cart">
+                <ShoppingCart className="w-5 h-5" />
+                {totalItems > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                    {totalItems > 9 ? "9+" : totalItems}
+                  </span>
+                )}
               </Link>
             </Button>
+            {/* User avatar / sign-in */}
+            {user ? (
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground" asChild>
+                <Link to="/profile">
+                  <span className="w-8 h-8 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">
+                    {userInitials}
+                  </span>
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setAuthModalOpen(true)}
+              >
+                Sign in
+              </Button>
+            )}
             <Button variant="flame" asChild>
               <Link to="/menu">Order Now</Link>
             </Button>
@@ -78,6 +111,17 @@ export const Header = () => {
 
           {/* Mobile Menu */}
           <div className="flex md:hidden items-center gap-2">
+            {/* Mobile cart badge */}
+            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground" asChild>
+              <Link to="/cart">
+                <ShoppingCart className="w-5 h-5" />
+                {totalItems > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                    {totalItems > 9 ? "9+" : totalItems}
+                  </span>
+                )}
+              </Link>
+            </Button>
             <Sheet open={isOpen} onOpenChange={setIsOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -101,17 +145,27 @@ export const Header = () => {
                         {link.name}
                       </Link>
                     ))}
-                    <Link
-                      to={user ? "/profile" : "/auth"}
-                      onClick={() => setIsOpen(false)}
-                      className={`text-lg font-body font-medium py-2 px-4 rounded-lg transition-colors ${
-                        location.pathname === "/profile" || location.pathname === "/auth"
-                          ? "bg-primary/10 text-primary"
-                          : "text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      Account
-                    </Link>
+                    {user ? (
+                      <Link
+                        to="/profile"
+                        onClick={() => setIsOpen(false)}
+                        className={`text-lg font-body font-medium py-2 px-4 rounded-lg transition-colors ${
+                          location.pathname === "/profile"
+                            ? "bg-primary/10 text-primary"
+                            : "text-foreground hover:bg-muted"
+                        }`}
+                      >
+                        Account
+                      </Link>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setIsOpen(false); setAuthModalOpen(true); }}
+                        className="text-lg font-body font-medium py-2 px-4 rounded-lg transition-colors text-left text-foreground hover:bg-muted"
+                      >
+                        Sign in
+                      </button>
+                    )}
                   </nav>
                   <div className="mt-auto pb-8">
                     <Button variant="flame" className="w-full" size="lg" asChild>
@@ -127,5 +181,7 @@ export const Header = () => {
         </div>
       </div>
     </header>
+    <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+  </>
   );
 };

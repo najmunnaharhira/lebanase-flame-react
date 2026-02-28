@@ -1,16 +1,19 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { validatePassword } from "@/lib/utils";
 
 const Auth = () => {
   const navigate = useNavigate();
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -21,11 +24,20 @@ const Auth = () => {
     setIsSubmitting(true);
     setError("");
 
+    if (mode === "signup") {
+      const passwordError = validatePassword(password);
+      if (passwordError) {
+        toast.error(passwordError);
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
     try {
       if (mode === "login") {
         await signIn(email, password);
       } else {
-        await signUp(email, password);
+        await signUp(email, password, name);
       }
       navigate("/profile");
     } catch (err) {
@@ -50,6 +62,19 @@ const Auth = () => {
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === "signup" && (
+              <div className="space-y-2">
+                <Label htmlFor="name">Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Your full name"
+                  required
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -70,6 +95,11 @@ const Auth = () => {
                 required
                 minLength={6}
               />
+              {mode === "signup" && (
+                <p className="text-xs text-muted-foreground">
+                  Min 6 characters, one uppercase letter, one number.
+                </p>
+              )}
             </div>
             {error && (
               <p className="text-sm text-destructive">{error}</p>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 import { CartItem, MenuItem, SelectedCustomization } from "@/types/menu";
 
 interface CartContextType {
@@ -27,12 +27,30 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 // Valid postcodes for delivery (SE9, Eltham, New Eltham areas)
 const VALID_POSTCODE_PREFIXES = ["SE9", "SE18", "SE2", "DA16", "DA15", "BR7"];
 
+const CART_STORAGE_KEY = "lb_flames_cart";
+
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [items, setItems] = useState<CartItem[]>([]);
+  const [items, setItems] = useState<CartItem[]>(() => {
+    try {
+      const stored = localStorage.getItem(CART_STORAGE_KEY);
+      return stored ? (JSON.parse(stored) as CartItem[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [orderCount, setOrderCount] = useState(4); // Mock: user has completed 4 orders
   const [isRewardApplied, setIsRewardApplied] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"delivery" | "collection">("delivery");
   const [postcode, setPostcode] = useState("");
+
+  // Persist cart to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+    } catch {
+      // Silent fail: localStorage may be unavailable in some environments.
+    }
+  }, [items]);
 
   // User has reward if they completed 5 orders (next order is the 6th - 50% off)
   const hasReward = orderCount >= 5;
@@ -59,6 +77,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearCart = useCallback(() => {
     setItems([]);
     setIsRewardApplied(false);
+    try {
+      localStorage.removeItem(CART_STORAGE_KEY);
+    } catch {
+      // Silent fail.
+    }
   }, []);
 
   const applyLoyaltyReward = useCallback(() => {

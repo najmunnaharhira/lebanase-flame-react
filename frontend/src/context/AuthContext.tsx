@@ -5,13 +5,14 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
+  updateProfile,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
-  signUp: (email: string, password: string) => Promise<User>;
+  signUp: (email: string, password: string, name?: string) => Promise<User>;
   signIn: (email: string, password: string) => Promise<User>;
   signOutUser: () => Promise<void>;
 }
@@ -33,8 +34,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<AuthContextValue>(() => ({
     user,
     isLoading,
-    signUp: async (email, password) => {
+    signUp: async (email, password, name?) => {
       const result = await createUserWithEmailAndPassword(auth, email, password);
+      if (name?.trim()) {
+        await updateProfile(result.user, { displayName: name.trim() });
+      }
       return result.user;
     },
     signIn: async (email, password) => {
