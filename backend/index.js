@@ -9,6 +9,13 @@ import nodemailer from "nodemailer";
 import path from "path";
 import sharp from "sharp";
 import twilio from "twilio";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
+import rateLimit from "express-rate-limit";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import csurf from "csurf";
+import fetch from "node-fetch";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { AbandonedCart } from "./models/AbandonedCart.js";
@@ -19,6 +26,7 @@ import { Order } from "./models/Order.js";
 import { Promotion } from "./models/Promotion.js";
 import { SupportMessage } from "./models/SupportMessage.js";
 import { UserProfile } from "./models/UserProfile.js";
+import { mysqlPool, testMySqlConnection } from "./mysql/connection.js";
 
 dotenv.config({ path: new URL("./.env", import.meta.url) });
 
@@ -38,8 +46,30 @@ const corsOrigin = (process.env.CORS_ORIGIN || "")
 app.use(
   cors({
     origin: corsOrigin.length > 0 ? corsOrigin : true,
+    credentials: true,
   }),
 );
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
+
+app.use(cookieParser());
+
+const rateLimitWindowMs = Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+const rateLimitMax = Number(process.env.RATE_LIMIT_MAX || 200);
+
+const apiLimiter = rateLimit({
+  windowMs: rateLimitWindowMs,
+  max: rateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/auth", apiLimiter);
+app.use("/payments", apiLimiter);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,6 +130,8 @@ const allowedIps = parseAllowedIps(process.env.ALLOWED_IPS);
 const allowLocalOnly = allowedIps.length === 0;
 const adminEmail = process.env.ADMIN_EMAIL || "admin@gmail.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
+const jwtSecret = process.env.JWT_SECRET || "dev-secret";
+const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "1h";
 
 const getRequestIp = (req) => {
   const forwarded = req.headers["x-forwarded-for"];
@@ -136,6 +168,60 @@ app.use((req, res, next) => {
   return res.status(403).json({ message: "API access is restricted" });
 });
 
+const buildJwtPayload = (user) => ({
+  sub: String(user.id),
+  email: user.email,
+  role: user.role || "user",
+  name: user.name,
+});
+
+const signAccessToken = (user) =>
+  jwt.sign(buildJwtPayload(user), jwtSecret, {
+    expiresIn: jwtExpiresIn,
+  });
+
+const authenticateJwt = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization || "";
+    const tokenFromHeader = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : null;
+    const tokenFromCookie =
+      typeof req.cookies?.access_token === "string"
+        ? req.cookies.access_token
+        : null;
+    const token = tokenFromHeader || tokenFromCookie;
+
+    if (!token) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const decoded = jwt.verify(token, jwtSecret);
+    req.user = {
+      id: decoded.sub,
+      email: decoded.email,
+      role: decoded.role,
+      name: decoded.name,
+    };
+    return next();
+  } catch (error) {
+    return res.status(401).json({ message: "Invalid or expired token" });
+  }
+};
+
+const requireRole = (roles) => {
+  const allowed = Array.isArray(roles) ? roles : [roles];
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    if (!allowed.includes(req.user.role)) {
+      return res.status(403).json({ message: "Insufficient permissions" });
+    }
+    return next();
+  };
+};
+
 const requireAdmin = (req, res, next) => {
   const email =
     typeof req.headers["x-admin-email"] === "string"
@@ -147,6 +233,10 @@ const requireAdmin = (req, res, next) => {
       : "";
 
   if (email === adminEmail && password === adminPassword) {
+    return next();
+  }
+
+  if (req.user && req.user.role === "admin") {
     return next();
   }
 
@@ -238,6 +328,18 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+const csrfProtection = csurf({
+  cookie: {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  },
+});
+
+app.get("/auth/csrf-token", csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
 const serializeMenuItem = (item) => {
   const { _id, __v, ...rest } = item;
   return {
@@ -318,6 +420,209 @@ const defaultOpeningHours = [
   { day: "Saturday", open: "12:00", close: "23:00", closed: false },
   { day: "Sunday", open: "12:00", close: "23:00", closed: false },
 ];
+
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const findUserByEmail = async (email) => {
+  const [rows] = await mysqlPool.query(
+    "SELECT id, name, email, password, role, google_id, profile_image, is_active FROM users WHERE email = ? LIMIT 1",
+    [email],
+  );
+  return rows[0] || null;
+};
+
+const findUserById = async (id) => {
+  const [rows] = await mysqlPool.query(
+    "SELECT id, name, email, password, role, google_id, profile_image, is_active FROM users WHERE id = ? LIMIT 1",
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const createUser = async ({ name, email, passwordHash, role = "user", googleId, profileImage }) => {
+  const [result] = await mysqlPool.query(
+    "INSERT INTO users (name, email, password, role, google_id, profile_image) VALUES (?, ?, ?, ?, ?, ?)",
+    [name, email, passwordHash, role, googleId || null, profileImage || null],
+  );
+  return findUserById(result.insertId);
+};
+
+const updateUserRole = async ({ userId, role }) => {
+  await mysqlPool.query("UPDATE users SET role = ? WHERE id = ?", [role, userId]);
+  return findUserById(userId);
+};
+
+const logActivity = async ({ userId, action, entityType, entityId, details, ipAddress }) => {
+  try {
+    await mysqlPool.query(
+      "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
+      [userId || null, action, entityType || null, entityId || null, details || null, ipAddress || null],
+    );
+  } catch {
+  }
+};
+
+app.get("/admin/payments", requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await mysqlPool.query(
+      `SELECT p.id,
+              p.transaction_id,
+              p.amount,
+              p.payment_method,
+              p.status,
+              p.created_at,
+              u.email AS user_email
+       FROM payments p
+       LEFT JOIN users u ON u.id = p.user_id
+       ORDER BY p.created_at DESC
+       LIMIT 500`,
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to load payments" });
+  }
+});
+
+app.get("/admin/payments/summary", requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await mysqlPool.query(
+      `SELECT
+         COUNT(*) AS totalCount,
+         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successCount,
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failedCount,
+         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pendingCount,
+         SUM(CASE WHEN status = 'success' THEN amount ELSE 0 END) AS totalRevenue
+       FROM payments`,
+    );
+
+    const [byMethod] = await mysqlPool.query(
+      `SELECT payment_method, COUNT(*) as count, SUM(amount) as total
+       FROM payments
+       GROUP BY payment_method`,
+    );
+
+    res.json({
+      overview: rows[0] || {
+        totalCount: 0,
+        successCount: 0,
+        failedCount: 0,
+        pendingCount: 0,
+        totalRevenue: 0,
+      },
+      byMethod,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to load payments summary" });
+  }
+});
+
+app.post("/auth/register", csrfProtection, async (req, res) => {
+  try {
+    const { name, email, password } = req.body || {};
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "Name, email, and password are required" });
+    }
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: "Invalid email address" });
+    }
+    if (String(password).length < 8) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 8 characters long" });
+    }
+
+    const existing = await findUserByEmail(email);
+    if (existing) {
+      return res.status(409).json({ message: "Email is already registered" });
+    }
+
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    const user = await createUser({
+      name: String(name),
+      email: String(email).toLowerCase(),
+      passwordHash,
+      role: "user",
+    });
+
+    const token = signAccessToken(user);
+    setAuthCookie(res, token);
+    await logActivity({
+      userId: user.id,
+      action: "auth_register",
+      entityType: "user",
+      entityId: String(user.id),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.status(201).json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to register user" });
+  }
+});
+
+app.post("/auth/login", csrfProtection, async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required" });
+    }
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: "Invalid email address" });
+    }
+
+    const user = await findUserByEmail(String(email).toLowerCase());
+    if (!user || !user.is_active) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const isMatch = await bcrypt.compare(String(password), user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const token = signAccessToken(user);
+    setAuthCookie(res, token);
+    await logActivity({
+      userId: user.id,
+      action: "auth_login",
+      entityType: "user",
+      entityId: String(user.id),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to log in" });
+  }
+});
+
+app.post("/auth/logout", authenticateJwt, csrfProtection, async (req, res) => {
+  try {
+    await logActivity({
+      userId: req.user?.id,
+      action: "auth_logout",
+      entityType: "user",
+      entityId: String(req.user?.id || ""),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+  } catch {
+  }
+  clearAuthCookie(res);
+  return res.json({ success: true });
+});
 
 const getBusinessSettings = async () => {
   let settings = await BusinessSettings.findOne().lean();
@@ -427,6 +732,50 @@ const buildInvoiceNumber = () => {
   const stamp = now.toISOString().slice(0, 10).replace(/-/g, "");
   const rand = Math.floor(1000 + Math.random() * 9000);
   return `LF-${stamp}-${rand}`;
+};
+
+const cloverAccessToken = process.env.CLOVER_ACCESS_TOKEN;
+const cloverApiBaseUrl =
+  process.env.CLOVER_API_BASE_URL || "https://scl-sandbox.dev.clover.com";
+const cloverDefaultCurrency =
+  (process.env.CLOVER_DEFAULT_CURRENCY || "gbp").toLowerCase();
+
+const createPaymentRecord = async ({
+  userId,
+  transactionId,
+  amount,
+  paymentMethod,
+  status,
+  metadata,
+}) => {
+  await mysqlPool.query(
+    "INSERT INTO payments (user_id, transaction_id, amount, payment_method, status, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+    [
+      userId || null,
+      transactionId,
+      amount,
+      paymentMethod,
+      status,
+      metadata ? JSON.stringify(metadata) : null,
+    ],
+  );
+};
+
+const setAuthCookie = (res, token) => {
+  res.cookie("access_token", token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+};
+
+const clearAuthCookie = (res) => {
+  res.clearCookie("access_token", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
 };
 
 const buildReceiptHtml = (order) => {
@@ -857,6 +1206,101 @@ app.post("/payments/intent", async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to create payment intent" });
+  }
+});
+
+app.post("/payments/clover/charge", authenticateJwt, csrfProtection, async (req, res) => {
+  try {
+    if (!cloverAccessToken) {
+      return res
+        .status(500)
+        .json({ message: "Clover is not configured on the server" });
+    }
+
+    const { source, amount, currency } = req.body || {};
+    const numericAmount = Number(amount || 0);
+
+    if (!source || typeof source !== "string") {
+      return res.status(400).json({ message: "Clover source token is required" });
+    }
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ message: "Valid amount is required" });
+    }
+
+    const minorUnits = Math.round(numericAmount * 100);
+    const resolvedCurrency = (currency || cloverDefaultCurrency).toLowerCase();
+    const clientIp = normalizeIp(getRequestIp(req));
+
+    const response = await fetch(`${cloverApiBaseUrl}/v1/charges`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${cloverAccessToken}`,
+        "content-type": "application/json",
+        "x-forwarded-for": clientIp,
+      },
+      body: JSON.stringify({
+        amount: minorUnits,
+        currency: resolvedCurrency,
+        source,
+      }),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = null;
+      }
+      return res.status(400).json({
+        message: payload?.message || "Clover charge failed",
+      });
+    }
+
+    let charge;
+    try {
+      charge = JSON.parse(text);
+    } catch {
+      charge = { id: undefined, status: "unknown" };
+    }
+
+    const transactionId = charge.id || source;
+    const cloverStatus = String(charge.status || "succeeded").toLowerCase();
+    const normalizedStatus =
+      cloverStatus === "succeeded" || cloverStatus === "paid"
+        ? "success"
+        : cloverStatus === "pending"
+          ? "pending"
+          : "failed";
+
+    await createPaymentRecord({
+      userId: req.user?.id,
+      transactionId,
+      amount: numericAmount,
+      paymentMethod: "clover",
+      status: normalizedStatus,
+      metadata: {
+        cloverStatus,
+      },
+    });
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "payment_clover_charge",
+      entityType: "payment",
+      entityId: transactionId,
+      details: JSON.stringify({ amount: numericAmount, currency: resolvedCurrency }),
+      ipAddress: clientIp,
+    });
+
+    return res.status(201).json({
+      transactionId,
+      status: normalizedStatus,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to process Clover payment" });
   }
 });
 
