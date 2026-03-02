@@ -1,9 +1,11 @@
 import logo from "@/assets/logo.png";
-import { MapPin, Menu, Phone, User } from "lucide-react";
+import { MapPin, Menu, Phone, ShoppingCart, User } from "lucide-react";
 import { useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
 
 const navLinks = [
   { name: "Home", path: "/" },
@@ -16,6 +18,7 @@ export const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
   const { user } = useAuth();
+  const { totalItems } = useCart(); // Get totalItems from CartContext (assuming this hook exists)
 
   return (
     <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border">
