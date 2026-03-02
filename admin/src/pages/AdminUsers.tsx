@@ -4,7 +4,7 @@ import { AdminHeader } from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { clearAdminSession, hasAdminSession } from "@/lib/adminAuth";
+import { clearAdminSession, getAdminRole, hasAdminSession } from "@/lib/adminAuth";
 import { demoUsers } from "@/lib/adminDemoData";
 import { apiRequest } from "@/lib/api";
 
@@ -12,12 +12,13 @@ interface AdminUser {
   id: number;
   name: string;
   email: string;
-  role: "admin" | "moderator" | "editor" | "user";
+  role: "admin" | "manager" | "moderator" | "editor" | "user";
   isActive: boolean;
 }
 
 const AdminUsers = () => {
   const navigate = useNavigate();
+  const currentRole = getAdminRole();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -26,6 +27,27 @@ const AdminUsers = () => {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AdminUser["role"]>("user");
   const [isDemoMode, setIsDemoMode] = useState(false);
+
+  const canAssignRole = (nextRole: AdminUser["role"]) => {
+    if (currentRole === "admin") return true;
+    if (currentRole === "manager") {
+      return ["editor", "user"].includes(nextRole);
+    }
+    return false;
+  };
+
+  const canManageUser = (target: AdminUser) => {
+    if (currentRole === "admin") return true;
+    if (currentRole === "manager") {
+      return ["editor", "user"].includes(target.role);
+    }
+    return false;
+  };
+
+  const creatableRoleOptions: AdminUser["role"][] =
+    currentRole === "manager"
+      ? ["user", "editor"]
+      : ["user", "editor", "manager", "moderator", "admin"];
 
   const loadUsers = async () => {
     setIsLoading(true);
@@ -56,6 +78,11 @@ const AdminUsers = () => {
   };
 
   const handleCreateUser = async () => {
+    if (!canAssignRole(role)) {
+      setError("You do not have permission to assign this role.");
+      return;
+    }
+
     if (isDemoMode) {
       if (!name.trim() || !email.trim()) {
         setError("Name and email are required.");
@@ -96,6 +123,12 @@ const AdminUsers = () => {
   };
 
   const handleRoleChange = async (userId: number, nextRole: AdminUser["role"]) => {
+    const target = users.find((entry) => entry.id === userId);
+    if (!target || !canManageUser(target) || !canAssignRole(nextRole)) {
+      setError("You do not have permission to change this role.");
+      return;
+    }
+
     if (isDemoMode) {
       setUsers((prev) => prev.map((user) => (user.id === userId ? { ...user, role: nextRole } : user)));
       return;
@@ -113,6 +146,12 @@ const AdminUsers = () => {
   };
 
   const handleDeactivate = async (userId: number) => {
+    const target = users.find((entry) => entry.id === userId);
+    if (!target || !canManageUser(target)) {
+      setError("You do not have permission to deactivate this user.");
+      return;
+    }
+
     if (isDemoMode) {
       setUsers((prev) => prev.map((user) => (user.id === userId ? { ...user, isActive: false } : user)));
       return;
@@ -135,6 +174,12 @@ const AdminUsers = () => {
           onLogout={handleLogout}
           isDemoMode={isDemoMode}
         />
+
+        {currentRole === "manager" && (
+          <p className="text-sm text-muted-foreground">
+            Manager scope: you can create and manage only Editor and User accounts.
+          </p>
+        )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
@@ -161,10 +206,11 @@ const AdminUsers = () => {
                 value={role}
                 onChange={(event) => setRole(event.target.value as AdminUser["role"])}
               >
-                <option value="user">User</option>
-                <option value="editor">Editor</option>
-                <option value="moderator">Moderator</option>
-                <option value="admin">Admin</option>
+                {creatableRoleOptions.map((roleOption) => (
+                  <option key={roleOption} value={roleOption}>
+                    {roleOption.charAt(0).toUpperCase() + roleOption.slice(1)}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -194,17 +240,22 @@ const AdminUsers = () => {
                     <td className="py-2 pr-4">{user.name}</td>
                     <td className="py-2 pr-4">{user.email}</td>
                     <td className="py-2 pr-4">
-                      <select
-                        aria-label={`Role for ${user.email}`}
-                        className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                        value={user.role}
-                        onChange={(event) => handleRoleChange(user.id, event.target.value as AdminUser["role"])}
-                      >
-                        <option value="user">User</option>
-                        <option value="editor">Editor</option>
-                        <option value="moderator">Moderator</option>
-                        <option value="admin">Admin</option>
-                      </select>
+                      {canManageUser(user) ? (
+                        <select
+                          aria-label={`Role for ${user.email}`}
+                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                          value={user.role}
+                          onChange={(event) => handleRoleChange(user.id, event.target.value as AdminUser["role"])}
+                        >
+                          {creatableRoleOptions.map((roleOption) => (
+                            <option key={roleOption} value={roleOption}>
+                              {roleOption.charAt(0).toUpperCase() + roleOption.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="capitalize text-muted-foreground">{user.role}</span>
+                      )}
                     </td>
                     <td className="py-2 pr-4">
                       {user.isActive ? (
@@ -216,7 +267,7 @@ const AdminUsers = () => {
                     <td className="py-2 text-right">
                       <Button
                         variant="outline"
-                        disabled={!user.isActive}
+                        disabled={!user.isActive || !canManageUser(user)}
                         onClick={() => handleDeactivate(user.id)}
                       >
                         Deactivate

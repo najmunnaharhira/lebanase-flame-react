@@ -1,12 +1,13 @@
-import { categories } from "@/data/menuData";
 import { cn } from "@/lib/utils";
+import { Category } from "@/types/menu";
 
 interface CategoryTabsProps {
   activeCategory: string;
   onCategoryChange: (category: string) => void;
+  categories: Category[];
 }
 
-export const CategoryTabs = ({ activeCategory, onCategoryChange }: CategoryTabsProps) => {
+export const CategoryTabs = ({ activeCategory, onCategoryChange, categories }: CategoryTabsProps) => {
   return (
     <div className="sticky top-[120px] z-40 bg-background/95 backdrop-blur-md py-4 border-b border-border">
       <div className="container">

@@ -135,11 +135,29 @@ const Auth = () => {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full"
+                className="w-full justify-center gap-2"
                 onClick={handleGoogleSignIn}
                 disabled={isGoogleSubmitting}
               >
-                {isGoogleSubmitting ? "Connecting Google..." : "Continue with Google"}
+                <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M21.35 11.1H12v2.98h5.35c-.23 1.5-1.76 4.4-5.35 4.4-3.22 0-5.85-2.66-5.85-5.93S8.78 6.62 12 6.62c1.83 0 3.06.78 3.76 1.45l2.56-2.46C16.67 4.1 14.53 3.2 12 3.2 7.03 3.2 3 7.27 3 12.3s4.03 9.1 9 9.1c5.2 0 8.65-3.65 8.65-8.79 0-.59-.06-1.04-.15-1.51Z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M3.96 7.95 6.4 9.74c.66-1.97 2.51-3.38 4.6-3.38 1.83 0 3.06.78 3.76 1.45l2.56-2.46C16.67 4.1 14.53 3.2 12 3.2c-3.46 0-6.43 2-8.04 4.75Z"
+                    fill="#EA4335"
+                  />
+                  <path
+                    d="M12 21.4c2.46 0 4.53-.82 6.04-2.22l-2.79-2.3c-.75.52-1.74.88-3.25.88-3.58 0-5.11-2.9-5.35-4.4l-2.5 1.92C5.75 19.25 8.66 21.4 12 21.4Z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M3.96 7.95A9.2 9.2 0 0 0 3 12.3c0 1.56.38 3.03 1.05 4.3l2.5-1.92a5.95 5.95 0 0 1 0-4.76L3.96 7.95Z"
+                    fill="#FBBC05"
+                  />
+                </svg>
+                {isGoogleSubmitting ? "Connecting..." : "Continue with Google"}
               </Button>
             )}
           </form>

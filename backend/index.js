@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import bcrypt from "bcryptjs";
+import bcrypt from "bcrypt";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import csurf from "csurf";
@@ -499,7 +499,7 @@ const updateUserRole = async ({ userId, role }) => {
   return findUserById(userId);
 };
 
-const SUPPORTED_ROLES = ["admin", "moderator", "editor", "user"];
+const SUPPORTED_ROLES = ["admin", "manager", "moderator", "editor", "user"];
 
 const ROLE_PERMISSIONS = {
   admin: [
@@ -511,9 +511,33 @@ const ROLE_PERMISSIONS = {
     "reports.manage",
     "settings.manage",
   ],
+  manager: [
+    "users.manage_limited",
+    "roles.assign_editor",
+    "dashboard.full",
+    "content.manage",
+    "reports.manage",
+    "promotions.manage",
+  ],
   moderator: ["content.review", "reports.manage", "dashboard.read"],
   editor: ["content.create", "content.edit", "media.upload", "dashboard.read"],
   user: ["self.read"],
+};
+
+const canAssignRole = (actorRole, nextRole) => {
+  if (actorRole === "admin") return true;
+  if (actorRole === "manager") {
+    return ["editor", "user"].includes(nextRole);
+  }
+  return false;
+};
+
+const canManageExistingUser = (actorRole, targetRole) => {
+  if (actorRole === "admin") return true;
+  if (actorRole === "manager") {
+    return ["editor", "user"].includes(targetRole);
+  }
+  return false;
 };
 
 const normalizeRoleInput = (role) => {
@@ -539,7 +563,12 @@ const sanitizeUserResponse = (user) => {
 const getRolePermissions = (role) =>
   ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.user;
 
-const requireStaffRole = requireRole(["admin", "moderator", "editor"]);
+const requireStaffRole = requireRole([
+  "admin",
+  "manager",
+  "moderator",
+  "editor",
+]);
 
 const logActivity = async ({
   userId,
@@ -669,7 +698,7 @@ app.post("/admin/auth/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    if (!["admin", "moderator", "editor"].includes(user.role)) {
+    if (!["admin", "manager", "moderator", "editor"].includes(user.role)) {
       return res.status(403).json({ message: "Admin panel access denied" });
     }
 
@@ -819,8 +848,15 @@ app.get("/admin/roles", requireStaffRole, async (_req, res) => {
   }
 });
 
-app.get("/admin/users", requireRole(["admin"]), async (_req, res) => {
+app.get("/admin/users", requireRole(["admin", "manager"]), async (req, res) => {
   try {
+    if (req.user?.role === "manager") {
+      const [rows] = await mysqlPool.query(
+        "SELECT id, name, email, role, google_id, profile_image, is_active, created_at, updated_at FROM users WHERE role IN ('editor', 'user') ORDER BY created_at DESC LIMIT 1000",
+      );
+      return res.json(rows.map((row) => sanitizeUserResponse(row)));
+    }
+
     const [rows] = await mysqlPool.query(
       "SELECT id, name, email, role, google_id, profile_image, is_active, created_at, updated_at FROM users ORDER BY created_at DESC LIMIT 1000",
     );
@@ -830,181 +866,248 @@ app.get("/admin/users", requireRole(["admin"]), async (_req, res) => {
   }
 });
 
-app.post("/admin/users", requireRole(["admin"]), async (req, res) => {
-  try {
-    const { name, email, password, role } = req.body || {};
-    const normalizedEmail = String(email || "")
-      .trim()
-      .toLowerCase();
-    const normalizedRole = normalizeRoleInput(role || "user");
+app.post(
+  "/admin/users",
+  requireRole(["admin", "manager"]),
+  async (req, res) => {
+    try {
+      const { name, email, password, role } = req.body || {};
+      const normalizedEmail = String(email || "")
+        .trim()
+        .toLowerCase();
+      const normalizedRole = normalizeRoleInput(role || "user");
 
-    if (!name || !normalizedEmail || !password || !normalizedRole) {
-      return res
-        .status(400)
-        .json({ message: "Name, email, password and role are required" });
+      if (!name || !normalizedEmail || !password || !normalizedRole) {
+        return res
+          .status(400)
+          .json({ message: "Name, email, password and role are required" });
+      }
+      if (!emailRegex.test(normalizedEmail)) {
+        return res.status(400).json({ message: "Invalid email address" });
+      }
+      if (String(password).length < 8) {
+        return res
+          .status(400)
+          .json({ message: "Password must be at least 8 characters long" });
+      }
+
+      if (!canAssignRole(req.user?.role, normalizedRole)) {
+        return res
+          .status(403)
+          .json({ message: "Insufficient permissions for this role" });
+      }
+
+      const existing = await findUserByEmail(normalizedEmail);
+      if (existing) {
+        return res.status(409).json({ message: "Email is already registered" });
+      }
+
+      const passwordHash = await bcrypt.hash(String(password), 10);
+      const created = await createUser({
+        name: String(name).trim(),
+        email: normalizedEmail,
+        passwordHash,
+        role: normalizedRole,
+      });
+
+      await logActivity({
+        userId: req.user?.id,
+        action: "admin_user_create",
+        entityType: "user",
+        entityId: String(created.id),
+        details: JSON.stringify({ role: normalizedRole }),
+        ipAddress: normalizeIp(getRequestIp(req)),
+      });
+
+      return res.status(201).json(sanitizeUserResponse(created));
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to create user" });
     }
-    if (!emailRegex.test(normalizedEmail)) {
-      return res.status(400).json({ message: "Invalid email address" });
-    }
-    if (String(password).length < 8) {
-      return res
-        .status(400)
-        .json({ message: "Password must be at least 8 characters long" });
-    }
+  },
+);
 
-    const existing = await findUserByEmail(normalizedEmail);
-    if (existing) {
-      return res.status(409).json({ message: "Email is already registered" });
-    }
+app.patch(
+  "/admin/users/:id",
+  requireRole(["admin", "manager"]),
+  async (req, res) => {
+    try {
+      const userId = Number(req.params.id);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return res.status(400).json({ message: "Invalid user id" });
+      }
 
-    const passwordHash = await bcrypt.hash(String(password), 10);
-    const created = await createUser({
-      name: String(name).trim(),
-      email: normalizedEmail,
-      passwordHash,
-      role: normalizedRole,
-    });
+      const updates = req.body || {};
+      const nextName =
+        typeof updates.name === "string" ? updates.name.trim() : undefined;
+      const nextEmail =
+        typeof updates.email === "string"
+          ? updates.email.trim().toLowerCase()
+          : undefined;
+      const nextRole =
+        typeof updates.role === "string"
+          ? normalizeRoleInput(updates.role)
+          : undefined;
+      const nextActive = updates.isActive;
 
-    await logActivity({
-      userId: req.user?.id,
-      action: "admin_user_create",
-      entityType: "user",
-      entityId: String(created.id),
-      details: JSON.stringify({ role: normalizedRole }),
-      ipAddress: normalizeIp(getRequestIp(req)),
-    });
+      if (nextEmail && !emailRegex.test(nextEmail)) {
+        return res.status(400).json({ message: "Invalid email address" });
+      }
+      if (typeof updates.role === "string" && !nextRole) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
 
-    return res.status(201).json(sanitizeUserResponse(created));
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to create user" });
-  }
-});
+      const existing = await findUserById(userId);
+      if (!existing) {
+        return res.status(404).json({ message: "User not found" });
+      }
 
-app.patch("/admin/users/:id", requireRole(["admin"]), async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
-    if (!Number.isFinite(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Invalid user id" });
-    }
+      if (!canManageExistingUser(req.user?.role, existing.role)) {
+        return res
+          .status(403)
+          .json({ message: "Insufficient permissions for this user" });
+      }
 
-    const updates = req.body || {};
-    const nextName =
-      typeof updates.name === "string" ? updates.name.trim() : undefined;
-    const nextEmail =
-      typeof updates.email === "string"
-        ? updates.email.trim().toLowerCase()
-        : undefined;
-    const nextRole =
-      typeof updates.role === "string"
-        ? normalizeRoleInput(updates.role)
-        : undefined;
-    const nextActive = updates.isActive;
+      if (nextRole && !canAssignRole(req.user?.role, nextRole)) {
+        return res
+          .status(403)
+          .json({ message: "Insufficient permissions for this role" });
+      }
 
-    if (nextEmail && !emailRegex.test(nextEmail)) {
-      return res.status(400).json({ message: "Invalid email address" });
-    }
-    if (typeof updates.role === "string" && !nextRole) {
-      return res.status(400).json({ message: "Invalid role" });
-    }
-
-    await mysqlPool.query(
-      `UPDATE users
+      await mysqlPool.query(
+        `UPDATE users
        SET name = COALESCE(?, name),
            email = COALESCE(?, email),
            role = COALESCE(?, role),
            is_active = COALESCE(?, is_active),
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [
-        nextName || null,
-        nextEmail || null,
-        nextRole || null,
-        typeof nextActive === "boolean" ? (nextActive ? 1 : 0) : null,
-        userId,
-      ],
-    );
+        [
+          nextName || null,
+          nextEmail || null,
+          nextRole || null,
+          typeof nextActive === "boolean" ? (nextActive ? 1 : 0) : null,
+          userId,
+        ],
+      );
 
-    const updated = await findUserById(userId);
-    if (!updated) {
-      return res.status(404).json({ message: "User not found" });
+      const updated = await findUserById(userId);
+      if (!updated) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      await logActivity({
+        userId: req.user?.id,
+        action: "admin_user_update",
+        entityType: "user",
+        entityId: String(userId),
+        details: JSON.stringify({
+          name: nextName,
+          email: nextEmail,
+          role: nextRole,
+          isActive: nextActive,
+        }),
+        ipAddress: normalizeIp(getRequestIp(req)),
+      });
+
+      return res.json(sanitizeUserResponse(updated));
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to update user" });
     }
+  },
+);
 
-    await logActivity({
-      userId: req.user?.id,
-      action: "admin_user_update",
-      entityType: "user",
-      entityId: String(userId),
-      details: JSON.stringify({
-        name: nextName,
-        email: nextEmail,
-        role: nextRole,
-        isActive: nextActive,
-      }),
-      ipAddress: normalizeIp(getRequestIp(req)),
-    });
+app.patch(
+  "/admin/users/:id/role",
+  requireRole(["admin", "manager"]),
+  async (req, res) => {
+    try {
+      const userId = Number(req.params.id);
+      const role = normalizeRoleInput(req.body?.role);
+      if (!Number.isFinite(userId) || userId <= 0 || !role) {
+        return res
+          .status(400)
+          .json({ message: "Invalid role assignment request" });
+      }
 
-    return res.json(sanitizeUserResponse(updated));
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to update user" });
-  }
-});
+      const existing = await findUserById(userId);
+      if (!existing) {
+        return res.status(404).json({ message: "User not found" });
+      }
 
-app.patch("/admin/users/:id/role", requireRole(["admin"]), async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
-    const role = normalizeRoleInput(req.body?.role);
-    if (!Number.isFinite(userId) || userId <= 0 || !role) {
-      return res
-        .status(400)
-        .json({ message: "Invalid role assignment request" });
+      if (!canManageExistingUser(req.user?.role, existing.role)) {
+        return res
+          .status(403)
+          .json({ message: "Insufficient permissions for this user" });
+      }
+
+      if (!canAssignRole(req.user?.role, role)) {
+        return res
+          .status(403)
+          .json({ message: "Insufficient permissions for this role" });
+      }
+
+      const updated = await updateUserRole({ userId, role });
+      if (!updated) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      await logActivity({
+        userId: req.user?.id,
+        action: "admin_user_role_update",
+        entityType: "user",
+        entityId: String(userId),
+        details: JSON.stringify({ role }),
+        ipAddress: normalizeIp(getRequestIp(req)),
+      });
+
+      return res.json(sanitizeUserResponse(updated));
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to update user role" });
     }
+  },
+);
 
-    const updated = await updateUserRole({ userId, role });
-    if (!updated) {
-      return res.status(404).json({ message: "User not found" });
+app.delete(
+  "/admin/users/:id",
+  requireRole(["admin", "manager"]),
+  async (req, res) => {
+    try {
+      const userId = Number(req.params.id);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return res.status(400).json({ message: "Invalid user id" });
+      }
+
+      const existing = await findUserById(userId);
+      if (!existing) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (!canManageExistingUser(req.user?.role, existing.role)) {
+        return res
+          .status(403)
+          .json({ message: "Insufficient permissions for this user" });
+      }
+
+      await mysqlPool.query(
+        "UPDATE users SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [userId],
+      );
+
+      await logActivity({
+        userId: req.user?.id,
+        action: "admin_user_deactivate",
+        entityType: "user",
+        entityId: String(userId),
+        details: null,
+        ipAddress: normalizeIp(getRequestIp(req)),
+      });
+
+      return res.status(204).send();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to deactivate user" });
     }
-
-    await logActivity({
-      userId: req.user?.id,
-      action: "admin_user_role_update",
-      entityType: "user",
-      entityId: String(userId),
-      details: JSON.stringify({ role }),
-      ipAddress: normalizeIp(getRequestIp(req)),
-    });
-
-    return res.json(sanitizeUserResponse(updated));
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to update user role" });
-  }
-});
-
-app.delete("/admin/users/:id", requireRole(["admin"]), async (req, res) => {
-  try {
-    const userId = Number(req.params.id);
-    if (!Number.isFinite(userId) || userId <= 0) {
-      return res.status(400).json({ message: "Invalid user id" });
-    }
-
-    await mysqlPool.query(
-      "UPDATE users SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      [userId],
-    );
-
-    await logActivity({
-      userId: req.user?.id,
-      action: "admin_user_deactivate",
-      entityType: "user",
-      entityId: String(userId),
-      details: null,
-      ipAddress: normalizeIp(getRequestIp(req)),
-    });
-
-    return res.status(204).send();
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to deactivate user" });
-  }
-});
+  },
+);
 
 app.get("/admin/content", requireStaffRole, async (req, res) => {
   try {
@@ -1036,7 +1139,7 @@ app.get("/admin/content", requireStaffRole, async (req, res) => {
 
 app.post(
   "/admin/content",
-  requireRole(["admin", "editor"]),
+  requireRole(["admin", "manager", "editor"]),
   async (req, res) => {
     try {
       const { title, description, status } = req.body || {};
@@ -1086,7 +1189,7 @@ app.post(
 
 app.patch(
   "/admin/content/:id",
-  requireRole(["admin", "moderator", "editor"]),
+  requireRole(["admin", "manager", "moderator", "editor"]),
   async (req, res) => {
     try {
       const contentId = Number(req.params.id);
@@ -1186,7 +1289,7 @@ app.delete("/admin/content/:id", requireRole(["admin"]), async (req, res) => {
 
 app.get(
   "/admin/reports",
-  requireRole(["admin", "moderator"]),
+  requireRole(["admin", "manager", "moderator"]),
   async (_req, res) => {
     try {
       const [rows] = await mysqlPool.query(
@@ -1233,7 +1336,7 @@ app.post("/admin/reports", authenticateJwt, async (req, res) => {
 
 app.patch(
   "/admin/reports/:id",
-  requireRole(["admin", "moderator"]),
+  requireRole(["admin", "manager", "moderator"]),
   async (req, res) => {
     try {
       const reportId = Number(req.params.id);
@@ -1521,6 +1624,34 @@ const createPaymentRecord = async ({
 }) => {
   await mysqlPool.query(
     "INSERT INTO payments (user_id, transaction_id, amount, payment_method, status, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+    [
+      userId || null,
+      transactionId,
+      amount,
+      paymentMethod,
+      status,
+      metadata ? JSON.stringify(metadata) : null,
+    ],
+  );
+};
+
+const upsertPaymentRecord = async ({
+  userId,
+  transactionId,
+  amount,
+  paymentMethod,
+  status,
+  metadata,
+}) => {
+  await mysqlPool.query(
+    `INSERT INTO payments (user_id, transaction_id, amount, payment_method, status, metadata)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       status = VALUES(status),
+       amount = VALUES(amount),
+       payment_method = VALUES(payment_method),
+       metadata = JSON_MERGE_PATCH(COALESCE(metadata, JSON_OBJECT()), VALUES(metadata)),
+       updated_at = CURRENT_TIMESTAMP`,
     [
       userId || null,
       transactionId,
@@ -2280,6 +2411,15 @@ app.get("/orders", async (req, res) => {
   }
 });
 
+app.get("/admin/orders", requireAdmin, async (_req, res) => {
+  try {
+    const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
+    res.json(orders.map(serializeOrder));
+  } catch (error) {
+    res.status(500).json({ message: "Failed to load admin orders" });
+  }
+});
+
 app.get("/orders/:id", async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).lean();
@@ -2414,6 +2554,28 @@ app.post("/orders", async (req, res) => {
     if (receiptSent) {
       await Order.findByIdAndUpdate(order._id, { receiptEmailSent: true });
       order.receiptEmailSent = true;
+    }
+
+    if (paymentMethod === "card" && paymentIntentId) {
+      const transactionId = String(paymentIntentId);
+      const normalizedPaymentMethod = transactionId.startsWith("pi_")
+        ? "stripe"
+        : "clover";
+      const normalizedPaymentStatus =
+        order.paymentStatus === "paid" ? "success" : "pending";
+
+      await upsertPaymentRecord({
+        userId: Number.isFinite(Number(userId)) ? Number(userId) : null,
+        transactionId,
+        amount: Number(order.total || recalculatedTotal || 0),
+        paymentMethod: normalizedPaymentMethod,
+        status: normalizedPaymentStatus,
+        metadata: {
+          orderId: order._id.toString(),
+          orderEmail: order.email,
+          source: "order_create",
+        },
+      });
     }
 
     res.status(201).json(serializeOrder(order.toJSON()));

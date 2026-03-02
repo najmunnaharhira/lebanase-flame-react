@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ItemCustomizationModal } from "./ItemCustomizationModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { resolveMenuImageUrl } from "@/lib/api";
 import { MenuItem } from "@/types/menu";
 
 interface FoodCardProps {
@@ -11,15 +12,16 @@ interface FoodCardProps {
 
 export const FoodCard = ({ item }: FoodCardProps) => {
   const [showModal, setShowModal] = useState(false);
+  const imageSrc = resolveMenuImageUrl(item.image);
 
   return (
     <>
       <div className="group bg-card rounded-2xl overflow-hidden shadow-card hover:shadow-elevated transition-all duration-300 animate-fade-in">
         {/* Image */}
         <div className="relative aspect-[4/3] overflow-hidden">
-          {item.image ? (
+          {imageSrc ? (
             <img
-              src={item.image}
+              src={imageSrc}
               alt={item.name}
               loading="lazy"
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"

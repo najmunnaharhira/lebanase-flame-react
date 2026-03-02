@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { AdminHeader } from "@/components/AdminHeader";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
 import { demoOrders } from "@/lib/adminDemoData";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, apiRequest } from "@/lib/api";
 import { OrderRecord } from "@/types/order";
 
 const STATUS_OPTIONS = [
@@ -13,12 +13,31 @@ const STATUS_OPTIONS = [
   "Delivered",
 ];
 
+type PaymentFilter = "all" | "paid" | "pending" | "cash_on_collection";
+
+const getPaymentBadgeClass = (paymentStatus?: string) => {
+  if (paymentStatus === "paid") {
+    return "bg-emerald-500/10 text-emerald-600";
+  }
+  if (paymentStatus === "cash_on_collection") {
+    return "bg-sky-500/10 text-sky-600";
+  }
+  return "bg-amber-500/10 text-amber-600";
+};
+
+const getPaymentLabel = (paymentStatus?: string) => {
+  if (paymentStatus === "paid") return "Paid";
+  if (paymentStatus === "cash_on_collection") return "Cash on collection";
+  return "Pending";
+};
+
 const AdminOrders = () => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
 
   useEffect(() => {
     if (!hasAdminSession()) {
@@ -30,11 +49,7 @@ const AdminOrders = () => {
       setIsLoading(true);
       setError("");
       try {
-        const response = await fetch(`${API_BASE_URL}/orders`);
-        if (!response.ok) {
-          throw new Error("Failed to load orders");
-        }
-        const data = await response.json();
+        const data = await apiRequest<OrderRecord[]>("/admin/orders");
         setOrders(data);
         setIsDemoMode(false);
       } catch (err) {
@@ -47,11 +62,33 @@ const AdminOrders = () => {
     };
 
     loadOrders();
+
+    const pollId = window.setInterval(async () => {
+      try {
+        const data = await apiRequest<OrderRecord[]>("/admin/orders");
+        setOrders(data);
+        setIsDemoMode(false);
+      } catch {
+        // Keep current view on polling failures.
+      }
+    }, 10000);
+
+    return () => {
+      window.clearInterval(pollId);
+    };
   }, [navigate]);
 
   const sortedOrders = useMemo(() => {
     return [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    if (paymentFilter === "all") return sortedOrders;
+    return sortedOrders.filter((order) => {
+      const status = order.paymentStatus || "pending";
+      return status === paymentFilter;
+    });
+  }, [paymentFilter, sortedOrders]);
 
   const handleStatusChange = async (orderId: string, status: string) => {
     if (isDemoMode) {
@@ -105,17 +142,17 @@ const AdminOrders = () => {
       );
     }
 
-    if (sortedOrders.length === 0) {
+    if (filteredOrders.length === 0) {
       return (
         <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
-          No orders yet.
+          No orders found for selected payment filter.
         </div>
       );
     }
 
     return (
       <div className="grid gap-4">
-        {sortedOrders.map((order) => (
+        {filteredOrders.map((order) => (
           <div key={order._id} className="rounded-2xl border border-border bg-card p-5 shadow-card">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex items-start gap-4">
@@ -139,6 +176,16 @@ const AdminOrders = () => {
                   <p className="text-xs text-muted-foreground">
                     {new Date(order.createdAt).toLocaleString()} · {order.deliveryMode}
                   </p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getPaymentBadgeClass(order.paymentStatus)}`}
+                    >
+                      {getPaymentLabel(order.paymentStatus)}
+                    </span>
+                    <span className="text-xs text-muted-foreground capitalize">
+                      {order.paymentMethod}
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -175,6 +222,53 @@ const AdminOrders = () => {
         />
 
         {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPaymentFilter("all")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              paymentFilter === "all"
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:border-primary/40"
+            }`}
+          >
+            All payments
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentFilter("paid")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              paymentFilter === "paid"
+                ? "border-emerald-500 bg-emerald-500/10 text-emerald-600"
+                : "border-border text-muted-foreground hover:border-emerald-500/50"
+            }`}
+          >
+            Paid
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentFilter("pending")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              paymentFilter === "pending"
+                ? "border-amber-500 bg-amber-500/10 text-amber-600"
+                : "border-border text-muted-foreground hover:border-amber-500/50"
+            }`}
+          >
+            Pending
+          </button>
+          <button
+            type="button"
+            onClick={() => setPaymentFilter("cash_on_collection")}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+              paymentFilter === "cash_on_collection"
+                ? "border-sky-500 bg-sky-500/10 text-sky-600"
+                : "border-border text-muted-foreground hover:border-sky-500/50"
+            }`}
+          >
+            Cash on collection
+          </button>
+        </div>
 
         {renderOrders()}
       </main>

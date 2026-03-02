@@ -2,7 +2,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { hasAdminSession, hasAnyRole } from "@/lib/adminAuth";
 
 interface ProtectedAdminRouteProps {
-  roles?: Array<"admin" | "moderator" | "editor" | "user">;
+  roles?: Array<"admin" | "manager" | "moderator" | "editor" | "user">;
 }
 
 const ProtectedAdminRoute = ({ roles }: ProtectedAdminRouteProps) => {

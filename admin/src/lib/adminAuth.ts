@@ -4,7 +4,7 @@ export interface AdminSessionUser {
   id: number | string;
   name: string;
   email: string;
-  role: "admin" | "moderator" | "editor" | "user";
+  role: "admin" | "manager" | "moderator" | "editor" | "user";
   profileImage?: string | null;
 }
 
@@ -47,7 +47,7 @@ export const hasAdminSession = () => {
 
 export const getAdminRole = () => getAdminSession()?.user?.role || null;
 
-export const hasAnyRole = (roles: Array<"admin" | "moderator" | "editor" | "user">) => {
+export const hasAnyRole = (roles: Array<"admin" | "manager" | "moderator" | "editor" | "user">) => {
   const role = getAdminRole();
   if (!role) return false;
   return roles.includes(role);

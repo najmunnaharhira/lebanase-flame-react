@@ -18,18 +18,21 @@ const App = () => (
       <Route path="/admin" element={<AdminLogin />} />
       <Route path="/admin/login" element={<AdminLogin />} />
 
-      <Route element={<ProtectedAdminRoute roles={["admin", "moderator", "editor"]} />}>
+      <Route element={<ProtectedAdminRoute roles={["admin", "manager", "moderator", "editor"]} />}>
         <Route path="/admin/orders" element={<AdminOrders />} />
         <Route path="/admin/menu" element={<AdminMenu />} />
         <Route path="/admin/analytics" element={<AdminAnalytics />} />
         <Route path="/admin/content" element={<AdminContent />} />
       </Route>
 
+      <Route element={<ProtectedAdminRoute roles={["admin", "manager"]} />}>
+        <Route path="/admin/users" element={<AdminUsers />} />
+      </Route>
+
       <Route element={<ProtectedAdminRoute roles={["admin"]} />}>
         <Route path="/admin/settings" element={<AdminSettings />} />
         <Route path="/admin/payments" element={<AdminPayments />} />
         <Route path="/admin/promotions" element={<AdminPromotions />} />
-        <Route path="/admin/users" element={<AdminUsers />} />
         <Route path="/admin/logs" element={<AdminActivityLogs />} />
       </Route>
 

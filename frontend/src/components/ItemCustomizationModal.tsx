@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCart } from "@/context/CartContext";
+import { resolveMenuImageUrl } from "@/lib/api";
 import { MenuItem, SelectedCustomization } from "@/types/menu";
 
 interface ItemCustomizationModalProps {
@@ -16,6 +17,7 @@ interface ItemCustomizationModalProps {
 export const ItemCustomizationModal = ({ item, isOpen, onClose }: ItemCustomizationModalProps) => {
   const { addItem } = useCart();
   const navigate = useNavigate();
+  const imageSrc = resolveMenuImageUrl(item.image);
   const [quantity, setQuantity] = useState(1);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
 
@@ -95,9 +97,9 @@ export const ItemCustomizationModal = ({ item, isOpen, onClose }: ItemCustomizat
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto bg-background p-0">
         {/* Image Header */}
         <div className="relative aspect-video">
-          {item.image ? (
+          {imageSrc ? (
             <img
-              src={item.image}
+              src={imageSrc}
               alt={item.name}
               loading="lazy"
               className="w-full h-full object-cover"

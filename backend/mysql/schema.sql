@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS reports (
 
 INSERT IGNORE INTO roles (role_name, description, permissions) VALUES
   ('admin', 'Full administrative access', JSON_ARRAY('users.manage','roles.assign','dashboard.full','payments.manage','content.manage','reports.manage','settings.manage')),
+  ('manager', 'Manages editors and operations with limited user administration', JSON_ARRAY('users.manage_limited','roles.assign_editor','dashboard.full','content.manage','reports.manage','promotions.manage')),
   ('moderator', 'Can moderate submitted content and manage reports', JSON_ARRAY('content.review','reports.manage','dashboard.read')),
   ('editor', 'Can add and edit content and media', JSON_ARRAY('content.create','content.edit','media.upload','dashboard.read')),
   ('user', 'Standard user with basic access', JSON_ARRAY('self.read'));
