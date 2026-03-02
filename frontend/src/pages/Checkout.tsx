@@ -1,3 +1,17 @@
+import { CardCvcElement, CardExpiryElement, CardNumberElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Footer } from "@/components/Footer";
+import { Header } from "@/components/Header";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/context/AuthContext";
+import { useCart } from "@/context/CartContext";
+import { apiRequest } from "@/lib/api";
+import { Address, OrderInput, UserProfile } from "@/types/order";
+
 /**
  * Checkout – UK market payment & order flow
  * - Card: Visa, Mastercard, Maestro, Amex (Stripe; Apple Pay / Google Pay when available)
@@ -5,19 +19,6 @@
  * - Secure encrypted checkout (card details not stored)
  * - On success: redirect to order-confirmation with invoice, payment status, and receipt email notice
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { CardNumberElement, CardExpiryElement, CardCvcElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
-import { loadStripe } from "@stripe/stripe-js";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useCart } from "@/context/CartContext";
-import { useAuth } from "@/context/AuthContext";
-import { apiRequest } from "@/lib/api";
-import { Address, OrderInput, UserProfile } from "@/types/order";
 
 const emptyAddress: Address = {
   fullName: "",
@@ -30,6 +31,7 @@ const emptyAddress: Address = {
 
 const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
 const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+const cloverEnabled = String(import.meta.env.VITE_CLOVER_ENABLED || "").toLowerCase() === "true";
 const abandonedPromoLink = import.meta.env.VITE_ABANDONED_PROMO_LINK || "";
 
 const CheckoutContent = () => {
@@ -52,6 +54,7 @@ const CheckoutContent = () => {
   const [paymentMethod, setPaymentMethod] = useState<"card" | "cash">("card");
   const [cardName, setCardName] = useState("");
   const [billingPostcode, setBillingPostcode] = useState("");
+  const [cloverSourceToken, setCloverSourceToken] = useState("");
   const [notes, setNotes] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [promoDiscount, setPromoDiscount] = useState(0);
@@ -63,12 +66,13 @@ const CheckoutContent = () => {
   const stripe = useStripe();
   const elements = useElements();
   const isStripeConfigured = Boolean(stripePublishableKey);
+  const isCardConfigured = isStripeConfigured || cloverEnabled;
 
   useEffect(() => {
-    if (!isStripeConfigured) {
+    if (!isCardConfigured) {
       setPaymentMethod("cash");
     }
-  }, [isStripeConfigured]);
+  }, [isCardConfigured]);
 
   const total = useMemo(() => {
     return Math.max(0, subtotal + deliveryFee - loyaltyDiscount - promoDiscount);
@@ -194,14 +198,8 @@ const CheckoutContent = () => {
 
     try {
       if (paymentMethod === "card") {
-        if (!isStripeConfigured || !stripe || !elements) {
+        if (!isCardConfigured) {
           setError("Card payments are not configured yet.");
-          setIsSubmitting(false);
-          return;
-        }
-
-        if (!cardName.trim() || !billingPostcode.trim()) {
-          setError("Please complete all card details to continue.");
           setIsSubmitting(false);
           return;
         }
@@ -225,15 +223,87 @@ const CheckoutContent = () => {
       };
 
       if (paymentMethod === "card") {
-        const paymentIntent = await apiRequest<{
-          clientSecret: string;
-          paymentIntentId: string;
-          promoDiscount?: number;
-        }>(
-          `/payments/intent`,
-          {
+        if (isStripeConfigured) {
+          if (!stripe || !elements || !cardName.trim() || !billingPostcode.trim()) {
+            setError("Please complete all card details to continue.");
+            setIsSubmitting(false);
+            return;
+          }
+
+          const paymentIntent = await apiRequest<{
+            clientSecret: string;
+            paymentIntentId: string;
+            promoDiscount?: number;
+          }>(
+            `/payments/intent`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                email,
+                userId: user?.uid,
+                items,
+                deliveryFee,
+                loyaltyDiscount,
+                promoCode: promoCode.trim() || undefined,
+                total,
+              }),
+            }
+          );
+
+          const cardNumberElement = elements?.getElement(CardNumberElement);
+          if (!cardNumberElement) {
+            setError("Card payments are not available.");
+            setIsSubmitting(false);
+            return;
+          }
+
+          const confirmation = await stripe.confirmCardPayment(paymentIntent.clientSecret, {
+            payment_method: {
+              card: cardNumberElement,
+              billing_details: {
+                name: cardName.trim(),
+                email,
+                address: {
+                  postal_code: billingPostcode.trim(),
+                },
+              },
+            },
+          });
+
+          if (confirmation.error) {
+            setError(confirmation.error.message || "Payment failed.");
+            setIsSubmitting(false);
+            return;
+          }
+
+          if (confirmation.paymentIntent?.status !== "succeeded") {
+            setError("Payment did not complete.");
+            setIsSubmitting(false);
+            return;
+          }
+
+          order.paymentStatus = "paid";
+          order.paymentIntentId = paymentIntent.paymentIntentId;
+          if (paymentIntent.promoDiscount !== undefined) {
+            order.promoDiscount = paymentIntent.promoDiscount;
+          }
+        } else {
+          if (!cloverSourceToken.trim()) {
+            setError("Enter Clover source token to process the payment.");
+            setIsSubmitting(false);
+            return;
+          }
+
+          const cloverCharge = await apiRequest<{
+            transactionId: string;
+            status: "success" | "pending" | "failed";
+            promoDiscount?: number;
+          }>(`/payments/clover/charge`, {
             method: "POST",
             body: JSON.stringify({
+              source: cloverSourceToken.trim(),
+              amount: total,
+              currency: "gbp",
               email,
               userId: user?.uid,
               items,
@@ -242,45 +312,19 @@ const CheckoutContent = () => {
               promoCode: promoCode.trim() || undefined,
               total,
             }),
+          });
+
+          if (cloverCharge.status !== "success") {
+            setError("Clover payment did not complete.");
+            setIsSubmitting(false);
+            return;
           }
-        );
 
-        const cardNumberElement = elements?.getElement(CardNumberElement);
-        if (!cardNumberElement) {
-          setError("Card payments are not available.");
-          setIsSubmitting(false);
-          return;
-        }
-
-        const confirmation = await stripe.confirmCardPayment(paymentIntent.clientSecret, {
-          payment_method: {
-            card: cardNumberElement,
-            billing_details: {
-              name: cardName.trim(),
-              email,
-              address: {
-                postal_code: billingPostcode.trim(),
-              },
-            },
-          },
-        });
-
-        if (confirmation.error) {
-          setError(confirmation.error.message || "Payment failed.");
-          setIsSubmitting(false);
-          return;
-        }
-
-        if (confirmation.paymentIntent?.status !== "succeeded") {
-          setError("Payment did not complete.");
-          setIsSubmitting(false);
-          return;
-        }
-
-        order.paymentStatus = "paid";
-        order.paymentIntentId = paymentIntent.paymentIntentId;
-        if (paymentIntent.promoDiscount !== undefined) {
-          order.promoDiscount = paymentIntent.promoDiscount;
+          order.paymentStatus = "paid";
+          order.paymentIntentId = cloverCharge.transactionId;
+          if (cloverCharge.promoDiscount !== undefined) {
+            order.promoDiscount = cloverCharge.promoDiscount;
+          }
         }
       }
 
@@ -447,16 +491,16 @@ const CheckoutContent = () => {
                 <div className="grid sm:grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => isStripeConfigured && setPaymentMethod("card")}
-                    disabled={!isStripeConfigured}
+                    onClick={() => isCardConfigured && setPaymentMethod("card")}
+                    disabled={!isCardConfigured}
                     className={`rounded-xl border px-4 py-3 text-left transition ${paymentMethod === "card"
                       ? "border-primary bg-primary/10"
                       : "border-border bg-background"
-                      } ${!isStripeConfigured ? "opacity-60 cursor-not-allowed" : ""}`}
+                      } ${!isCardConfigured ? "opacity-60 cursor-not-allowed" : ""}`}
                   >
                     <p className="font-medium text-foreground">Card (UK)</p>
                     <p className="text-xs text-muted-foreground">
-                      Visa, Mastercard, Maestro, Amex · Apple Pay & Google Pay
+                      Visa, Mastercard, Maestro, Amex · Clover/Stripe secure checkout
                     </p>
                   </button>
                   <button
@@ -473,9 +517,9 @@ const CheckoutContent = () => {
                     </p>
                   </button>
                 </div>
-                {!isStripeConfigured && (
+                {!isCardConfigured && (
                   <p className="text-xs text-muted-foreground">
-                    Card payments are offline. Add `VITE_STRIPE_PUBLISHABLE_KEY` to enable them.
+                    Card payments are offline. Add `VITE_STRIPE_PUBLISHABLE_KEY` or enable Clover to use card checkout.
                   </p>
                 )}
               </div>
@@ -565,6 +609,25 @@ const CheckoutContent = () => {
                     Card details are used to process your payment and are not stored. Apple Pay and Google Pay
                     appear automatically when available.
                   </p>
+                </div>
+              )}
+
+              {paymentMethod === "card" && !isStripeConfigured && cloverEnabled && (
+                <div className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <p className="text-sm font-medium text-foreground">Clover UK Card Payment</p>
+                  <p className="text-xs text-muted-foreground">
+                    Enter Clover source token generated by your Clover checkout component.
+                  </p>
+                  <div className="space-y-2">
+                    <Label htmlFor="clover-source-token">Clover source token</Label>
+                    <Input
+                      id="clover-source-token"
+                      value={cloverSourceToken}
+                      onChange={(event) => setCloverSourceToken(event.target.value)}
+                      placeholder="src_..."
+                      required
+                    />
+                  </div>
                 </div>
               )}
 

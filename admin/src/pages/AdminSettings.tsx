@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AdminHeader } from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { API_BASE_URL } from "@/lib/api";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
+import { demoBusinessSettings } from "@/lib/adminDemoData";
+import { API_BASE_URL } from "@/lib/api";
 import { BusinessSettings, HolidayClosure, OpeningHour } from "@/types/settings";
-import { AdminHeader } from "@/components/AdminHeader";
 
 const WEEK_DAYS = [
   "Monday",
@@ -35,6 +36,7 @@ const AdminSettings = () => {
   const [newHoliday, setNewHoliday] = useState<HolidayClosure>({ date: "", note: "" });
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     if (!hasAdminSession()) {
@@ -53,8 +55,11 @@ const AdminSettings = () => {
           openingHours: data.openingHours?.length ? data.openingHours : buildDefaultHours(),
           holidayClosures: data.holidayClosures || [],
         });
+        setIsDemoMode(false);
       } catch (err) {
-        setMessage(err instanceof Error ? err.message : "Unable to load settings");
+        setSettings(demoBusinessSettings);
+        setIsDemoMode(true);
+        setMessage("API unavailable. Showing demo business settings.");
       }
     };
 
@@ -87,6 +92,11 @@ const AdminSettings = () => {
   };
 
   const handleSave = async () => {
+    if (isDemoMode) {
+      setMessage("Demo mode: settings saved locally for preview.");
+      return;
+    }
+
     setIsSaving(true);
     setMessage("");
     try {
@@ -134,6 +144,7 @@ const AdminSettings = () => {
           title="Business hours"
           subtitle="Set opening hours and holiday closures."
           onLogout={handleLogout}
+          isDemoMode={isDemoMode}
         />
 
         <div className="bg-card rounded-2xl shadow-card p-6">

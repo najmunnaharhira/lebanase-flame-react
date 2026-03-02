@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AdminHeader } from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiRequest } from "@/lib/api";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
-import { AdminHeader } from "@/components/AdminHeader";
+import { demoInactiveCustomers, demoPromotions } from "@/lib/adminDemoData";
+import { apiRequest } from "@/lib/api";
 import { Promotion } from "@/types/promotion";
 
 const defaultForm = {
@@ -33,6 +34,7 @@ const AdminPromotions = () => {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     if (!hasAdminSession()) {
@@ -48,8 +50,12 @@ const AdminPromotions = () => {
           headers: getAdminAuthHeaders(),
         });
         setPromotions(data);
+        setIsDemoMode(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to load promotions");
+        setPromotions(demoPromotions as Promotion[]);
+        setInactiveCustomers(demoInactiveCustomers);
+        setIsDemoMode(true);
+        setError("API unavailable. Showing demo promotions.");
       } finally {
         setIsLoading(false);
       }
@@ -64,6 +70,26 @@ const AdminPromotions = () => {
   };
 
   const handleCreate = async () => {
+    if (isDemoMode) {
+      const created: Promotion = {
+        _id: `promo-demo-${Date.now()}`,
+        code: form.code.trim().toUpperCase() || `DEMO${Math.floor(Math.random() * 100)}`,
+        description: form.description,
+        discountType: form.discountType,
+        value: form.value,
+        minSubtotal: form.minSubtotal,
+        maxDiscount: form.maxDiscount,
+        startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : undefined,
+        endsAt: form.endsAt ? new Date(form.endsAt).toISOString() : undefined,
+        firstOrderOnly: form.firstOrderOnly,
+        minCompletedOrders: form.minCompletedOrders,
+        active: form.active,
+      };
+      setPromotions((prev) => [created, ...prev]);
+      setForm(defaultForm);
+      return;
+    }
+
     try {
       setError("");
       const created = await apiRequest<Promotion>("/promotions", {
@@ -84,6 +110,13 @@ const AdminPromotions = () => {
   };
 
   const handleToggleActive = async (promo: Promotion) => {
+    if (isDemoMode) {
+      setPromotions((prev) =>
+        prev.map((item) => (item._id === promo._id ? { ...item, active: !promo.active } : item))
+      );
+      return;
+    }
+
     try {
       const updated = await apiRequest<Promotion>(`/promotions/${promo._id}`, {
         method: "PUT",
@@ -97,6 +130,11 @@ const AdminPromotions = () => {
   };
 
   const handleLoadInactive = async () => {
+    if (isDemoMode) {
+      setInactiveCustomers(demoInactiveCustomers);
+      return;
+    }
+
     try {
       const data = await apiRequest<{ email: string; lastOrderAt: string }[]>(
         "/admin/marketing/inactive?days=30",
@@ -113,6 +151,10 @@ const AdminPromotions = () => {
   const handleSendCampaign = async () => {
     if (inactiveCustomers.length === 0) {
       setError("No inactive customers to send.");
+      return;
+    }
+    if (isDemoMode) {
+      setError("Demo mode: campaign simulated successfully.");
       return;
     }
     try {
@@ -138,6 +180,7 @@ const AdminPromotions = () => {
           title="Promotions"
           subtitle="Create promo codes, first-order deals, and limited-time offers."
           onLogout={handleLogout}
+          isDemoMode={isDemoMode}
         />
 
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -168,6 +211,7 @@ const AdminPromotions = () => {
                 <Label htmlFor="promo-type">Discount type</Label>
                 <select
                   id="promo-type"
+                  aria-label="Promotion discount type"
                   className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                   value={form.discountType}
                   onChange={(event) =>

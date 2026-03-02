@@ -34,6 +34,29 @@ UPLOAD_DIR=uploads
 
 STRIPE_SECRET_KEY=sk_live_xxx
 STRIPE_WEBHOOK_SECRET=whsec_xxx
+
+# Clover UK (optional)
+CLOVER_ACCESS_TOKEN=pat_xxx
+CLOVER_API_BASE_URL=https://scl.clover.com
+CLOVER_DEFAULT_CURRENCY=gbp
+
+# Google OAuth
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+
+# bKash / Nagad placeholders
+BKASH_BASE_URL=
+BKASH_APP_KEY=
+BKASH_APP_SECRET=
+BKASH_USERNAME=
+BKASH_PASSWORD=
+NAGAD_BASE_URL=
+NAGAD_MERCHANT_ID=
+NAGAD_PUBLIC_KEY=
+NAGAD_PRIVATE_KEY=
+
+# Deployment URLs (Hostinger compatible)
+APP_PUBLIC_URL=https://<your-frontend-domain>
+ADMIN_PUBLIC_URL=https://<your-admin-domain>
 ```
 
 ## Frontend env (`frontend/.env`)
@@ -41,6 +64,8 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 ```
 VITE_API_BASE_URL=https://<your-backend-domain>
 VITE_STRIPE_PUBLISHABLE_KEY=pk_live_xxx
+VITE_CLOVER_ENABLED=true
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
 
 VITE_FIREBASE_API_KEY=AIzaSyA3Q5LOkRRyPI12Jg2guK3HMXxcibPx6jo
 VITE_FIREBASE_AUTH_DOMAIN=uk-restuart.firebaseapp.com
@@ -57,6 +82,8 @@ VITE_FIREBASE_MEASUREMENT_ID=G-98F9RFC8QX
 ```
 VITE_API_BASE_URL=https://<your-backend-domain>
 VITE_STRIPE_PUBLISHABLE_KEY=pk_live_xxx
+VITE_CLOVER_ENABLED=true
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
 
 VITE_FIREBASE_API_KEY=AIzaSyA3Q5LOkRRyPI12Jg2guK3HMXxcibPx6jo
 VITE_FIREBASE_AUTH_DOMAIN=uk-restuart.firebaseapp.com
@@ -67,3 +94,11 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=900477608367
 VITE_FIREBASE_APP_ID=1:900477608367:web:1ca928365ffc4711bf4f5a
 VITE_FIREBASE_MEASUREMENT_ID=G-98F9RFC8QX
 ```
+
+## Deployment checklist (Hostinger)
+
+- Build `frontend` and `admin` with `npm run build`.
+- Host static builds on Hostinger public directories.
+- Run backend as Node app (`node index.js`) with process manager.
+- Set `CORS_ORIGIN` to both frontend/admin domains.
+- Run MySQL migration before first launch: `npm run migrate:mysql` in `backend`.

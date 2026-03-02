@@ -1,11 +1,15 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import AdminActivityLogs from "./pages/AdminActivityLogs";
+import AdminAnalytics from "./pages/AdminAnalytics";
+import AdminContent from "./pages/AdminContent";
 import AdminLogin from "./pages/AdminLogin";
 import AdminMenu from "./pages/AdminMenu";
 import AdminOrders from "./pages/AdminOrders";
-import AdminSettings from "./pages/AdminSettings";
-import AdminAnalytics from "./pages/AdminAnalytics";
-import AdminPromotions from "./pages/AdminPromotions";
 import AdminPayments from "./pages/AdminPayments";
+import AdminPromotions from "./pages/AdminPromotions";
+import AdminSettings from "./pages/AdminSettings";
+import AdminUsers from "./pages/AdminUsers";
+import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 
 const App = () => (
   <BrowserRouter>
@@ -13,12 +17,22 @@ const App = () => (
       <Route path="/" element={<AdminLogin />} />
       <Route path="/admin" element={<AdminLogin />} />
       <Route path="/admin/login" element={<AdminLogin />} />
-      <Route path="/admin/orders" element={<AdminOrders />} />
-      <Route path="/admin/menu" element={<AdminMenu />} />
-      <Route path="/admin/settings" element={<AdminSettings />} />
-      <Route path="/admin/analytics" element={<AdminAnalytics />} />
-      <Route path="/admin/payments" element={<AdminPayments />} />
-      <Route path="/admin/promotions" element={<AdminPromotions />} />
+
+      <Route element={<ProtectedAdminRoute roles={["admin", "moderator", "editor"]} />}>
+        <Route path="/admin/orders" element={<AdminOrders />} />
+        <Route path="/admin/menu" element={<AdminMenu />} />
+        <Route path="/admin/analytics" element={<AdminAnalytics />} />
+        <Route path="/admin/content" element={<AdminContent />} />
+      </Route>
+
+      <Route element={<ProtectedAdminRoute roles={["admin"]} />}>
+        <Route path="/admin/settings" element={<AdminSettings />} />
+        <Route path="/admin/payments" element={<AdminPayments />} />
+        <Route path="/admin/promotions" element={<AdminPromotions />} />
+        <Route path="/admin/users" element={<AdminUsers />} />
+        <Route path="/admin/logs" element={<AdminActivityLogs />} />
+      </Route>
+
       <Route path="*" element={<AdminLogin />} />
     </Routes>
   </BrowserRouter>

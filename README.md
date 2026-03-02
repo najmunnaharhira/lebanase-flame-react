@@ -47,6 +47,12 @@ MONGODB_URI=your_mongodb_connection_string
 PORT=5000
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
+CLOVER_ACCESS_TOKEN=pat_...
+CLOVER_API_BASE_URL=https://scl.clover.com
+CLOVER_DEFAULT_CURRENCY=gbp
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+APP_PUBLIC_URL=http://localhost:5173
+ADMIN_PUBLIC_URL=http://localhost:4173
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_USER=your_smtp_user
@@ -66,6 +72,13 @@ npm run dev
 
 The API server will start on `http://localhost:5000`.
 
+Run MySQL migrations before first launch:
+
+```sh
+cd backend
+npm run migrate:mysql
+```
+
 ### 5. Install frontend dependencies
 
 ```sh
@@ -83,6 +96,8 @@ Add the following to `frontend/.env`:
 
 ```
 VITE_API_BASE_URL=http://localhost:5000
+VITE_CLOVER_ENABLED=true
+VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
 VITE_FIREBASE_API_KEY=your_firebase_api_key
 VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
 VITE_FIREBASE_DATABASE_URL=https://your_project-default-rtdb.firebaseio.com

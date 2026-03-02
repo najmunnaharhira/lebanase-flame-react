@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "@/lib/api";
 import { AdminHeader } from "@/components/AdminHeader";
 import { clearAdminSession, hasAdminSession } from "@/lib/adminAuth";
+import { demoPaymentSummary, demoPayments } from "@/lib/adminDemoData";
+import { apiRequest } from "@/lib/api";
 
 interface PaymentRow {
   id: number;
@@ -31,6 +32,7 @@ const AdminPayments = () => {
   const [summary, setSummary] = useState<PaymentsSummary | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     if (!hasAdminSession()) {
@@ -42,21 +44,18 @@ const AdminPayments = () => {
       setIsLoading(true);
       setError("");
       try {
-        const [paymentsRes, summaryRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/admin/payments`),
-          fetch(`${API_BASE_URL}/admin/payments/summary`),
+        const [paymentsJson, summaryJson] = await Promise.all([
+          apiRequest<PaymentRow[]>("/admin/payments"),
+          apiRequest<PaymentsSummary>("/admin/payments/summary"),
         ]);
-
-        if (!paymentsRes.ok || !summaryRes.ok) {
-          throw new Error("Failed to load payments data");
-        }
-
-        const paymentsJson = await paymentsRes.json();
-        const summaryJson = await summaryRes.json();
         setPayments(paymentsJson);
         setSummary(summaryJson);
+        setIsDemoMode(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to load payments");
+        setPayments(demoPayments as PaymentRow[]);
+        setSummary(demoPaymentSummary as PaymentsSummary);
+        setIsDemoMode(true);
+        setError("API unavailable. Showing demo payments.");
       } finally {
         setIsLoading(false);
       }
@@ -77,6 +76,7 @@ const AdminPayments = () => {
           title="Payments"
           subtitle="View recent transactions and payment performance."
           onLogout={handleLogout}
+          isDemoMode={isDemoMode}
         />
 
         {error && <p className="text-sm text-destructive">{error}</p>}

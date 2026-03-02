@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
+import { demoCategories, demoMenuItems } from "@/lib/adminDemoData";
 import { API_BASE_URL } from "@/lib/api";
 import { Category, MenuItem } from "@/types/menu";
 
@@ -41,6 +42,7 @@ const AdminMenu = () => {
   const [categoryIcon, setCategoryIcon] = useState("");
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryDraft, setEditingCategoryDraft] = useState<Partial<Category>>({});
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   const normalizeImageUrl = (value: string) => {
     const trimmed = value.trim();
@@ -116,8 +118,12 @@ const AdminMenu = () => {
         ]);
         setMenuItems(menuData);
         setCategories(categoryData);
+        setIsDemoMode(false);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Unable to load menu items");
+        setMenuItems(demoMenuItems as MenuItem[]);
+        setCategories(demoCategories as Category[]);
+        setIsDemoMode(true);
+        setMessage("API unavailable. Showing demo menu data.");
       } finally {
         setIsLoadingMenu(false);
       }
@@ -152,6 +158,25 @@ const AdminMenu = () => {
   };
 
   const handleUpdateItem = async (id: string) => {
+    if (isDemoMode) {
+      setMenuItems((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                ...editDraft,
+                image: normalizeImageUrl(editDraft.image || item.image || ""),
+              }
+            : item
+        )
+      );
+      setEditingId(null);
+      setEditImageFile(null);
+      setEditDraft({});
+      setMessage("Demo mode: menu item updated locally.");
+      return;
+    }
+
     try {
       let image = normalizeImageUrl(editDraft.image || "");
 
@@ -201,6 +226,13 @@ const AdminMenu = () => {
   };
 
   const handleToggleAvailability = async (item: MenuItem) => {
+    if (isDemoMode) {
+      setMenuItems((prev) =>
+        prev.map((entry) => (entry.id === item.id ? { ...entry, isAvailable: !entry.isAvailable } : entry))
+      );
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/menu/${item.id}`, {
         method: "PATCH",
@@ -221,6 +253,12 @@ const AdminMenu = () => {
   };
 
   const handleDeleteItem = async (item: MenuItem) => {
+    if (isDemoMode) {
+      setMenuItems((prev) => prev.filter((entry) => entry.id !== item.id));
+      setMessage("Demo mode: menu item deleted locally.");
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/menu/${item.id}`, {
         method: "DELETE",
@@ -240,6 +278,21 @@ const AdminMenu = () => {
     event.preventDefault();
     if (!categoryName.trim()) {
       setMessage("Category name is required.");
+      return;
+    }
+    if (isDemoMode) {
+      const id = categoryName.trim().toLowerCase().replaceAll(/\s+/g, "-");
+      setCategories((prev) => [
+        ...prev,
+        {
+          id: id || `category-${Date.now()}`,
+          name: categoryName.trim(),
+          icon: categoryIcon.trim() || "🍽️",
+        },
+      ]);
+      setCategoryName("");
+      setCategoryIcon("");
+      setMessage("Demo mode: category created locally.");
       return;
     }
     try {
@@ -270,6 +323,23 @@ const AdminMenu = () => {
   };
 
   const handleUpdateCategory = async (id: string) => {
+    if (isDemoMode) {
+      setCategories((prev) =>
+        prev.map((entry) =>
+          entry.id === id
+            ? {
+                ...entry,
+                ...editingCategoryDraft,
+              }
+            : entry
+        )
+      );
+      setEditingCategoryId(null);
+      setEditingCategoryDraft({});
+      setMessage("Demo mode: category updated locally.");
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/categories/${id}`, {
         method: "PATCH",
@@ -294,6 +364,12 @@ const AdminMenu = () => {
   };
 
   const handleDeleteCategory = async (categoryId: string) => {
+    if (isDemoMode) {
+      setCategories((prev) => prev.filter((entry) => entry.id !== categoryId));
+      setMessage("Demo mode: category deleted locally.");
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/categories/${categoryId}`, {
         method: "DELETE",
@@ -317,6 +393,37 @@ const AdminMenu = () => {
 
     if (!name.trim() || !price || !category.trim()) {
       setMessage("Name, price, and category are required.");
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (isDemoMode) {
+      const created: MenuItem = {
+        id: `menu-demo-${Date.now()}`,
+        name: name.trim(),
+        description: description.trim(),
+        price: Number(price),
+        image: previewUrl || normalizeImageUrl(imageUrl) || "",
+        category: category.trim(),
+        isAvailable,
+        isPopular,
+        isVegetarian,
+        isVegan,
+        isSpicy,
+      };
+      setMenuItems((prev) => [created, ...prev]);
+      setMessage("Demo mode: menu item created locally.");
+      setName("");
+      setDescription("");
+      setPrice("");
+      setCategory("");
+      setImageFile(null);
+      setImageUrl("");
+      setIsAvailable(true);
+      setIsPopular(false);
+      setIsVegetarian(false);
+      setIsVegan(false);
+      setIsSpicy(false);
       setIsSubmitting(false);
       return;
     }
@@ -398,6 +505,7 @@ const AdminMenu = () => {
           title="Menu management"
           subtitle="Add, edit, and disable items in real time."
           onLogout={handleLogout}
+          isDemoMode={isDemoMode}
         />
 
         <div className="bg-card rounded-2xl shadow-card p-6 md:p-8 mb-8">

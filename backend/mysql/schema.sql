@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS roles (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   role_name VARCHAR(50) NOT NULL UNIQUE,
   description VARCHAR(255) DEFAULT NULL,
+  permissions JSON NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -63,9 +64,24 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   INDEX idx_activity_logs_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO roles (role_name, description) VALUES
-  ('admin', 'Full administrative access'),
-  ('moderator', 'Can moderate submitted content and manage reports'),
-  ('editor', 'Can add and edit content and media'),
-  ('user', 'Standard user with basic access');
+CREATE TABLE IF NOT EXISTS reports (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  content_id INT UNSIGNED NOT NULL,
+  reported_by INT UNSIGNED NULL,
+  reason TEXT NOT NULL,
+  status ENUM('open', 'reviewing', 'resolved', 'rejected') NOT NULL DEFAULT 'open',
+  resolution TEXT DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_reports_content FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE,
+  CONSTRAINT fk_reports_reported_by FOREIGN KEY (reported_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_reports_status (status),
+  INDEX idx_reports_content_id (content_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO roles (role_name, description, permissions) VALUES
+  ('admin', 'Full administrative access', JSON_ARRAY('users.manage','roles.assign','dashboard.full','payments.manage','content.manage','reports.manage','settings.manage')),
+  ('moderator', 'Can moderate submitted content and manage reports', JSON_ARRAY('content.review','reports.manage','dashboard.read')),
+  ('editor', 'Can add and edit content and media', JSON_ARRAY('content.create','content.edit','media.upload','dashboard.read')),
+  ('user', 'Standard user with basic access', JSON_ARRAY('self.read'));
 

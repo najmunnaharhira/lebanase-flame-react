@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { API_BASE_URL } from "@/lib/api";
-import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
 import { AdminHeader } from "@/components/AdminHeader";
+import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
+import { demoAnalytics } from "@/lib/adminDemoData";
+import { API_BASE_URL } from "@/lib/api";
+
 import {
   ResponsiveContainer,
   LineChart,
@@ -34,6 +35,7 @@ const AdminAnalytics = () => {
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     if (!hasAdminSession()) {
@@ -53,8 +55,11 @@ const AdminAnalytics = () => {
         }
         const result = await response.json();
         setData(result);
+        setIsDemoMode(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to load analytics");
+        setData(demoAnalytics as AnalyticsResponse);
+        setIsDemoMode(true);
+        setError("API unavailable. Showing demo analytics.");
       } finally {
         setIsLoading(false);
       }
@@ -83,6 +88,7 @@ const AdminAnalytics = () => {
           title="Business analytics"
           subtitle="Track performance and peak ordering times."
           onLogout={handleLogout}
+          isDemoMode={isDemoMode}
         />
 
         {error && <p className="text-sm text-destructive">{error}</p>}

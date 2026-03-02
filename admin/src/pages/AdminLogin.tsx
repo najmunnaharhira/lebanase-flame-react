@@ -3,7 +3,20 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { isAdminCredentials, setAdminSession } from "@/lib/adminAuth";
+import { setAdminSession } from "@/lib/adminAuth";
+import { apiRequest } from "@/lib/api";
+
+interface AdminLoginResponse {
+  accessToken: string;
+  user: {
+    id: number | string;
+    name: string;
+    email: string;
+    role: "admin" | "moderator" | "editor" | "user";
+    profileImage?: string | null;
+  };
+  permissions: string[];
+}
 
 const AdminLogin = () => {
   const navigate = useNavigate();
@@ -12,16 +25,25 @@ const AdminLogin = () => {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setIsSubmitting(true);
     setError("");
 
-    if (isAdminCredentials(email, password)) {
-      setAdminSession(email);
+    try {
+      const response = await apiRequest<AdminLoginResponse>("/admin/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+
+      setAdminSession({
+        accessToken: response.accessToken,
+        user: response.user,
+        permissions: response.permissions || [],
+      });
       navigate("/admin/orders");
-    } else {
-      setError("Invalid admin credentials.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid admin credentials.");
     }
 
     setIsSubmitting(false);

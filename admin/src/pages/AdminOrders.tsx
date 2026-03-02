@@ -1,10 +1,11 @@
+import { Package } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "@/lib/api";
-import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
-import { OrderRecord } from "@/types/order";
 import { AdminHeader } from "@/components/AdminHeader";
-import { Package } from "lucide-react";
+import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
+import { demoOrders } from "@/lib/adminDemoData";
+import { API_BASE_URL } from "@/lib/api";
+import { OrderRecord } from "@/types/order";
 
 const STATUS_OPTIONS = [
   "Food Processing",
@@ -17,6 +18,7 @@ const AdminOrders = () => {
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
     if (!hasAdminSession()) {
@@ -34,8 +36,11 @@ const AdminOrders = () => {
         }
         const data = await response.json();
         setOrders(data);
+        setIsDemoMode(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to load orders");
+        setOrders(demoOrders as OrderRecord[]);
+        setIsDemoMode(true);
+        setError("API unavailable. Showing demo orders.");
       } finally {
         setIsLoading(false);
       }
@@ -49,6 +54,11 @@ const AdminOrders = () => {
   }, [orders]);
 
   const handleStatusChange = async (orderId: string, status: string) => {
+    if (isDemoMode) {
+      setOrders((prev) => prev.map((order) => (order._id === orderId ? { ...order, status } : order)));
+      return;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/orders/${orderId}/status`, {
         method: "PATCH",
@@ -161,6 +171,7 @@ const AdminOrders = () => {
           title="Live orders"
           subtitle="Manage status and track kitchen progress."
           onLogout={handleLogout}
+          isDemoMode={isDemoMode}
         />
 
         {error && <p className="text-sm text-destructive">{error}</p>}

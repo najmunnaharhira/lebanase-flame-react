@@ -1,23 +1,24 @@
 import Stripe from "stripe";
+import bcrypt from "bcryptjs";
+import cookieParser from "cookie-parser";
 import cors from "cors";
+import csurf from "csurf";
 import dotenv from "dotenv";
 import express from "express";
+import fetch from "node-fetch";
 import fs from "fs";
+import helmet from "helmet";
+import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import multer from "multer";
 import nodemailer from "nodemailer";
 import path from "path";
+import rateLimit from "express-rate-limit";
 import sharp from "sharp";
 import twilio from "twilio";
-import helmet from "helmet";
-import cookieParser from "cookie-parser";
-import rateLimit from "express-rate-limit";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
-import csurf from "csurf";
-import fetch from "node-fetch";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
+import { sanitizeInput } from "./middleware/sanitizeInput.js";
 import { AbandonedCart } from "./models/AbandonedCart.js";
 import { BusinessSettings } from "./models/BusinessSettings.js";
 import { Category } from "./models/Category.js";
@@ -58,7 +59,9 @@ app.use(
 
 app.use(cookieParser());
 
-const rateLimitWindowMs = Number(process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+const rateLimitWindowMs = Number(
+  process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000,
+);
 const rateLimitMax = Number(process.env.RATE_LIMIT_MAX || 200);
 
 const apiLimiter = rateLimit({
@@ -132,6 +135,7 @@ const adminEmail = process.env.ADMIN_EMAIL || "admin@gmail.com";
 const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
 const jwtSecret = process.env.JWT_SECRET || "dev-secret";
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "1h";
+const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 
 const getRequestIp = (req) => {
   const forwarded = req.headers["x-forwarded-for"];
@@ -180,29 +184,35 @@ const signAccessToken = (user) =>
     expiresIn: jwtExpiresIn,
   });
 
+const extractAuthUser = (req) => {
+  const authHeader = req.headers.authorization || "";
+  const tokenFromHeader = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : null;
+  const tokenFromCookie =
+    typeof req.cookies?.access_token === "string"
+      ? req.cookies.access_token
+      : null;
+  const token = tokenFromHeader || tokenFromCookie;
+
+  if (!token) return null;
+
+  const decoded = jwt.verify(token, jwtSecret);
+  return {
+    id: decoded.sub,
+    email: decoded.email,
+    role: decoded.role,
+    name: decoded.name,
+  };
+};
+
 const authenticateJwt = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization || "";
-    const tokenFromHeader = authHeader.startsWith("Bearer ")
-      ? authHeader.slice(7)
-      : null;
-    const tokenFromCookie =
-      typeof req.cookies?.access_token === "string"
-        ? req.cookies.access_token
-        : null;
-    const token = tokenFromHeader || tokenFromCookie;
-
-    if (!token) {
+    const user = extractAuthUser(req);
+    if (!user) {
       return res.status(401).json({ message: "Authentication required" });
     }
-
-    const decoded = jwt.verify(token, jwtSecret);
-    req.user = {
-      id: decoded.sub,
-      email: decoded.email,
-      role: decoded.role,
-      name: decoded.name,
-    };
+    req.user = user;
     return next();
   } catch (error) {
     return res.status(401).json({ message: "Invalid or expired token" });
@@ -212,10 +222,20 @@ const authenticateJwt = async (req, res, next) => {
 const requireRole = (roles) => {
   const allowed = Array.isArray(roles) ? roles : [roles];
   return (req, res, next) => {
-    if (!req.user) {
+    let user = req.user;
+    if (!user) {
+      try {
+        user = extractAuthUser(req);
+        if (user) req.user = user;
+      } catch {
+        user = null;
+      }
+    }
+
+    if (!user) {
       return res.status(401).json({ message: "Authentication required" });
     }
-    if (!allowed.includes(req.user.role)) {
+    if (!allowed.includes(user.role)) {
       return res.status(403).json({ message: "Insufficient permissions" });
     }
     return next();
@@ -233,10 +253,26 @@ const requireAdmin = (req, res, next) => {
       : "";
 
   if (email === adminEmail && password === adminPassword) {
+    req.user = {
+      id: "env-admin",
+      email: adminEmail,
+      role: "admin",
+      name: "Administrator",
+    };
     return next();
   }
 
-  if (req.user && req.user.role === "admin") {
+  let user = req.user;
+  if (!user) {
+    try {
+      user = extractAuthUser(req);
+      if (user) req.user = user;
+    } catch {
+      user = null;
+    }
+  }
+
+  if (user && user.role === "admin") {
     return next();
   }
 
@@ -300,6 +336,7 @@ app.post(
 );
 
 app.use(express.json());
+app.use(sanitizeInput);
 
 mongoose
   .connect(mongoUri)
@@ -439,7 +476,14 @@ const findUserById = async (id) => {
   return rows[0] || null;
 };
 
-const createUser = async ({ name, email, passwordHash, role = "user", googleId, profileImage }) => {
+const createUser = async ({
+  name,
+  email,
+  passwordHash,
+  role = "user",
+  googleId,
+  profileImage,
+}) => {
   const [result] = await mysqlPool.query(
     "INSERT INTO users (name, email, password, role, google_id, profile_image) VALUES (?, ?, ?, ?, ?, ?)",
     [name, email, passwordHash, role, googleId || null, profileImage || null],
@@ -448,18 +492,76 @@ const createUser = async ({ name, email, passwordHash, role = "user", googleId, 
 };
 
 const updateUserRole = async ({ userId, role }) => {
-  await mysqlPool.query("UPDATE users SET role = ? WHERE id = ?", [role, userId]);
+  await mysqlPool.query("UPDATE users SET role = ? WHERE id = ?", [
+    role,
+    userId,
+  ]);
   return findUserById(userId);
 };
 
-const logActivity = async ({ userId, action, entityType, entityId, details, ipAddress }) => {
+const SUPPORTED_ROLES = ["admin", "moderator", "editor", "user"];
+
+const ROLE_PERMISSIONS = {
+  admin: [
+    "users.manage",
+    "roles.assign",
+    "dashboard.full",
+    "payments.manage",
+    "content.manage",
+    "reports.manage",
+    "settings.manage",
+  ],
+  moderator: ["content.review", "reports.manage", "dashboard.read"],
+  editor: ["content.create", "content.edit", "media.upload", "dashboard.read"],
+  user: ["self.read"],
+};
+
+const normalizeRoleInput = (role) => {
+  const value = String(role || "")
+    .trim()
+    .toLowerCase();
+  return SUPPORTED_ROLES.includes(value) ? value : null;
+};
+
+const sanitizeUserResponse = (user) => {
+  if (!user) return null;
+  return {
+    id: Number(user.id),
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    googleId: user.google_id || null,
+    profileImage: user.profile_image || null,
+    isActive: Boolean(user.is_active),
+  };
+};
+
+const getRolePermissions = (role) =>
+  ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.user;
+
+const requireStaffRole = requireRole(["admin", "moderator", "editor"]);
+
+const logActivity = async ({
+  userId,
+  action,
+  entityType,
+  entityId,
+  details,
+  ipAddress,
+}) => {
   try {
     await mysqlPool.query(
       "INSERT INTO activity_logs (user_id, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
-      [userId || null, action, entityType || null, entityId || null, details || null, ipAddress || null],
+      [
+        userId || null,
+        action,
+        entityType || null,
+        entityId || null,
+        details || null,
+        ipAddress || null,
+      ],
     );
-  } catch {
-  }
+  } catch {}
 };
 
 app.get("/admin/payments", requireAdmin, async (req, res) => {
@@ -516,11 +618,678 @@ app.get("/admin/payments/summary", requireAdmin, async (req, res) => {
   }
 });
 
+app.post("/admin/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
+    const normalizedPassword = String(password || "");
+
+    if (!normalizedEmail || !normalizedPassword) {
+      return res
+        .status(400)
+        .json({ message: "Email and password are required" });
+    }
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({ message: "Invalid email address" });
+    }
+
+    let user = await findUserByEmail(normalizedEmail);
+
+    if (
+      !user &&
+      normalizedEmail === String(adminEmail).toLowerCase() &&
+      normalizedPassword === String(adminPassword)
+    ) {
+      const passwordHash = await bcrypt.hash(normalizedPassword, 10);
+      user = await createUser({
+        name: "Administrator",
+        email: normalizedEmail,
+        passwordHash,
+        role: "admin",
+      });
+    }
+
+    if (!user || !user.is_active) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    let isMatch = false;
+    if (
+      normalizedEmail === String(adminEmail).toLowerCase() &&
+      normalizedPassword === String(adminPassword)
+    ) {
+      isMatch = true;
+    } else {
+      isMatch = await bcrypt.compare(normalizedPassword, user.password);
+    }
+
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (!["admin", "moderator", "editor"].includes(user.role)) {
+      return res.status(403).json({ message: "Admin panel access denied" });
+    }
+
+    const token = signAccessToken(user);
+    setAuthCookie(res, token);
+
+    await logActivity({
+      userId: user.id,
+      action: "admin_login",
+      entityType: "user",
+      entityId: String(user.id),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.json({
+      accessToken: token,
+      user: sanitizeUserResponse(user),
+      permissions: getRolePermissions(user.role),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to sign in" });
+  }
+});
+
+app.get("/admin/auth/me", requireStaffRole, async (req, res) => {
+  try {
+    const user = await findUserById(req.user.id);
+    if (!user || !user.is_active) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    return res.json({
+      user: sanitizeUserResponse(user),
+      permissions: getRolePermissions(user.role),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load account" });
+  }
+});
+
+app.get("/auth/me", authenticateJwt, async (req, res) => {
+  try {
+    const user = await findUserById(req.user.id);
+    if (!user || !user.is_active) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    return res.json(sanitizeUserResponse(user));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load account" });
+  }
+});
+
+app.post("/auth/google", async (req, res) => {
+  try {
+    const idToken = String(req.body?.idToken || "").trim();
+    if (!idToken) {
+      return res.status(400).json({ message: "Google idToken is required" });
+    }
+    if (!googleClientId) {
+      return res
+        .status(500)
+        .json({ message: "Google OAuth is not configured" });
+    }
+
+    const googleRes = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
+    );
+
+    if (!googleRes.ok) {
+      return res.status(401).json({ message: "Invalid Google token" });
+    }
+
+    const googleUser = await googleRes.json();
+    if (googleUser.aud !== googleClientId) {
+      return res
+        .status(401)
+        .json({ message: "Google token audience mismatch" });
+    }
+
+    const email = String(googleUser.email || "").toLowerCase();
+    if (!email || googleUser.email_verified !== "true") {
+      return res
+        .status(401)
+        .json({ message: "Google account is not verified" });
+    }
+
+    const googleId = String(googleUser.sub || "").trim();
+    const name = String(googleUser.name || "Google User").trim();
+    const picture = String(googleUser.picture || "").trim();
+
+    let user = await findUserByEmail(email);
+    if (!user) {
+      const passwordHash = await bcrypt.hash(randomUUID(), 10);
+      user = await createUser({
+        name,
+        email,
+        passwordHash,
+        role: "user",
+        googleId,
+        profileImage: picture,
+      });
+    } else {
+      await mysqlPool.query(
+        "UPDATE users SET google_id = ?, profile_image = COALESCE(NULLIF(?, ''), profile_image), name = COALESCE(NULLIF(?, ''), name), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [googleId || null, picture || null, name || null, user.id],
+      );
+      user = await findUserById(user.id);
+    }
+
+    const token = signAccessToken(user);
+    setAuthCookie(res, token);
+
+    await logActivity({
+      userId: user.id,
+      action: "auth_google_login",
+      entityType: "user",
+      entityId: String(user.id),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.json({
+      accessToken: token,
+      user: sanitizeUserResponse(user),
+      permissions: getRolePermissions(user.role),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to sign in with Google" });
+  }
+});
+
+app.get("/admin/roles", requireStaffRole, async (_req, res) => {
+  try {
+    const [rows] = await mysqlPool.query(
+      "SELECT id, role_name, description, permissions FROM roles ORDER BY id ASC",
+    );
+    const data = rows.map((role) => ({
+      id: role.id,
+      roleName: role.role_name,
+      description: role.description,
+      permissions:
+        role.permissions || JSON.stringify(getRolePermissions(role.role_name)),
+    }));
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load roles" });
+  }
+});
+
+app.get("/admin/users", requireRole(["admin"]), async (_req, res) => {
+  try {
+    const [rows] = await mysqlPool.query(
+      "SELECT id, name, email, role, google_id, profile_image, is_active, created_at, updated_at FROM users ORDER BY created_at DESC LIMIT 1000",
+    );
+    return res.json(rows.map((row) => sanitizeUserResponse(row)));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load users" });
+  }
+});
+
+app.post("/admin/users", requireRole(["admin"]), async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body || {};
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
+    const normalizedRole = normalizeRoleInput(role || "user");
+
+    if (!name || !normalizedEmail || !password || !normalizedRole) {
+      return res
+        .status(400)
+        .json({ message: "Name, email, password and role are required" });
+    }
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({ message: "Invalid email address" });
+    }
+    if (String(password).length < 8) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 8 characters long" });
+    }
+
+    const existing = await findUserByEmail(normalizedEmail);
+    if (existing) {
+      return res.status(409).json({ message: "Email is already registered" });
+    }
+
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    const created = await createUser({
+      name: String(name).trim(),
+      email: normalizedEmail,
+      passwordHash,
+      role: normalizedRole,
+    });
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "admin_user_create",
+      entityType: "user",
+      entityId: String(created.id),
+      details: JSON.stringify({ role: normalizedRole }),
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.status(201).json(sanitizeUserResponse(created));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to create user" });
+  }
+});
+
+app.patch("/admin/users/:id", requireRole(["admin"]), async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ message: "Invalid user id" });
+    }
+
+    const updates = req.body || {};
+    const nextName =
+      typeof updates.name === "string" ? updates.name.trim() : undefined;
+    const nextEmail =
+      typeof updates.email === "string"
+        ? updates.email.trim().toLowerCase()
+        : undefined;
+    const nextRole =
+      typeof updates.role === "string"
+        ? normalizeRoleInput(updates.role)
+        : undefined;
+    const nextActive = updates.isActive;
+
+    if (nextEmail && !emailRegex.test(nextEmail)) {
+      return res.status(400).json({ message: "Invalid email address" });
+    }
+    if (typeof updates.role === "string" && !nextRole) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+
+    await mysqlPool.query(
+      `UPDATE users
+       SET name = COALESCE(?, name),
+           email = COALESCE(?, email),
+           role = COALESCE(?, role),
+           is_active = COALESCE(?, is_active),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        nextName || null,
+        nextEmail || null,
+        nextRole || null,
+        typeof nextActive === "boolean" ? (nextActive ? 1 : 0) : null,
+        userId,
+      ],
+    );
+
+    const updated = await findUserById(userId);
+    if (!updated) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "admin_user_update",
+      entityType: "user",
+      entityId: String(userId),
+      details: JSON.stringify({
+        name: nextName,
+        email: nextEmail,
+        role: nextRole,
+        isActive: nextActive,
+      }),
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.json(sanitizeUserResponse(updated));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update user" });
+  }
+});
+
+app.patch("/admin/users/:id/role", requireRole(["admin"]), async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const role = normalizeRoleInput(req.body?.role);
+    if (!Number.isFinite(userId) || userId <= 0 || !role) {
+      return res
+        .status(400)
+        .json({ message: "Invalid role assignment request" });
+    }
+
+    const updated = await updateUserRole({ userId, role });
+    if (!updated) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "admin_user_role_update",
+      entityType: "user",
+      entityId: String(userId),
+      details: JSON.stringify({ role }),
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.json(sanitizeUserResponse(updated));
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update user role" });
+  }
+});
+
+app.delete("/admin/users/:id", requireRole(["admin"]), async (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ message: "Invalid user id" });
+    }
+
+    await mysqlPool.query(
+      "UPDATE users SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [userId],
+    );
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "admin_user_deactivate",
+      entityType: "user",
+      entityId: String(userId),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to deactivate user" });
+  }
+});
+
+app.get("/admin/content", requireStaffRole, async (req, res) => {
+  try {
+    const status =
+      typeof req.query?.status === "string" ? req.query.status : "";
+    const params = [];
+    let whereSql = "";
+    if (status) {
+      whereSql = "WHERE c.status = ?";
+      params.push(status);
+    }
+
+    const [rows] = await mysqlPool.query(
+      `SELECT c.id, c.title, c.description, c.status, c.created_at, c.updated_at,
+              c.created_by, u.name AS created_by_name, u.email AS created_by_email
+       FROM content c
+       LEFT JOIN users u ON u.id = c.created_by
+       ${whereSql}
+       ORDER BY c.created_at DESC
+       LIMIT 1000`,
+      params,
+    );
+
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load content" });
+  }
+});
+
+app.post(
+  "/admin/content",
+  requireRole(["admin", "editor"]),
+  async (req, res) => {
+    try {
+      const { title, description, status } = req.body || {};
+      if (!title || !description) {
+        return res
+          .status(400)
+          .json({ message: "Title and description are required" });
+      }
+      const allowedStatus = [
+        "draft",
+        "pending_review",
+        "approved",
+        "rejected",
+        "archived",
+      ];
+      const resolvedStatus = allowedStatus.includes(status) ? status : "draft";
+
+      const [result] = await mysqlPool.query(
+        "INSERT INTO content (title, description, created_by, status) VALUES (?, ?, ?, ?)",
+        [
+          String(title).trim(),
+          String(description).trim(),
+          Number(req.user.id) || null,
+          resolvedStatus,
+        ],
+      );
+
+      const [rows] = await mysqlPool.query(
+        "SELECT * FROM content WHERE id = ? LIMIT 1",
+        [result.insertId],
+      );
+      await logActivity({
+        userId: req.user?.id,
+        action: "content_create",
+        entityType: "content",
+        entityId: String(result.insertId),
+        details: JSON.stringify({ status: resolvedStatus }),
+        ipAddress: normalizeIp(getRequestIp(req)),
+      });
+
+      return res.status(201).json(rows[0]);
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to create content" });
+    }
+  },
+);
+
+app.patch(
+  "/admin/content/:id",
+  requireRole(["admin", "moderator", "editor"]),
+  async (req, res) => {
+    try {
+      const contentId = Number(req.params.id);
+      if (!Number.isFinite(contentId) || contentId <= 0) {
+        return res.status(400).json({ message: "Invalid content id" });
+      }
+
+      const updates = req.body || {};
+      const allowedStatus = [
+        "draft",
+        "pending_review",
+        "approved",
+        "rejected",
+        "archived",
+      ];
+      const nextStatus =
+        typeof updates.status === "string" &&
+        allowedStatus.includes(updates.status)
+          ? updates.status
+          : null;
+
+      if (req.user.role === "moderator") {
+        if (!nextStatus || !["approved", "rejected"].includes(nextStatus)) {
+          return res
+            .status(403)
+            .json({ message: "Moderators can only approve or reject content" });
+        }
+        await mysqlPool.query(
+          "UPDATE content SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [nextStatus, contentId],
+        );
+      } else {
+        await mysqlPool.query(
+          `UPDATE content
+         SET title = COALESCE(?, title),
+             description = COALESCE(?, description),
+             status = COALESCE(?, status),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+          [
+            typeof updates.title === "string" ? updates.title.trim() : null,
+            typeof updates.description === "string"
+              ? updates.description.trim()
+              : null,
+            nextStatus,
+            contentId,
+          ],
+        );
+      }
+
+      const [rows] = await mysqlPool.query(
+        "SELECT * FROM content WHERE id = ? LIMIT 1",
+        [contentId],
+      );
+      if (!rows[0]) {
+        return res.status(404).json({ message: "Content not found" });
+      }
+
+      await logActivity({
+        userId: req.user?.id,
+        action: "content_update",
+        entityType: "content",
+        entityId: String(contentId),
+        details: JSON.stringify({ status: nextStatus }),
+        ipAddress: normalizeIp(getRequestIp(req)),
+      });
+
+      return res.json(rows[0]);
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to update content" });
+    }
+  },
+);
+
+app.delete("/admin/content/:id", requireRole(["admin"]), async (req, res) => {
+  try {
+    const contentId = Number(req.params.id);
+    if (!Number.isFinite(contentId) || contentId <= 0) {
+      return res.status(400).json({ message: "Invalid content id" });
+    }
+    await mysqlPool.query("DELETE FROM content WHERE id = ?", [contentId]);
+
+    await logActivity({
+      userId: req.user?.id,
+      action: "content_delete",
+      entityType: "content",
+      entityId: String(contentId),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete content" });
+  }
+});
+
+app.get(
+  "/admin/reports",
+  requireRole(["admin", "moderator"]),
+  async (_req, res) => {
+    try {
+      const [rows] = await mysqlPool.query(
+        `SELECT r.id, r.content_id, r.reported_by, r.reason, r.status, r.created_at, r.updated_at,
+              c.title AS content_title,
+              u.email AS reported_by_email
+       FROM reports r
+       LEFT JOIN content c ON c.id = r.content_id
+       LEFT JOIN users u ON u.id = r.reported_by
+       ORDER BY r.created_at DESC
+       LIMIT 1000`,
+      );
+      return res.json(rows);
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to load reports" });
+    }
+  },
+);
+
+app.post("/admin/reports", authenticateJwt, async (req, res) => {
+  try {
+    const { contentId, reason } = req.body || {};
+    const numericContentId = Number(contentId);
+    if (
+      !Number.isFinite(numericContentId) ||
+      numericContentId <= 0 ||
+      !reason
+    ) {
+      return res
+        .status(400)
+        .json({ message: "contentId and reason are required" });
+    }
+
+    const [result] = await mysqlPool.query(
+      "INSERT INTO reports (content_id, reported_by, reason, status) VALUES (?, ?, ?, 'open')",
+      [numericContentId, Number(req.user.id) || null, String(reason).trim()],
+    );
+
+    return res.status(201).json({ id: result.insertId });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to submit report" });
+  }
+});
+
+app.patch(
+  "/admin/reports/:id",
+  requireRole(["admin", "moderator"]),
+  async (req, res) => {
+    try {
+      const reportId = Number(req.params.id);
+      const status = String(req.body?.status || "")
+        .trim()
+        .toLowerCase();
+      const resolution = String(req.body?.resolution || "").trim();
+
+      if (!Number.isFinite(reportId) || reportId <= 0) {
+        return res.status(400).json({ message: "Invalid report id" });
+      }
+      if (!["open", "reviewing", "resolved", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Invalid report status" });
+      }
+
+      await mysqlPool.query(
+        "UPDATE reports SET status = ?, resolution = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [status, resolution || null, reportId],
+      );
+
+      const [rows] = await mysqlPool.query(
+        "SELECT * FROM reports WHERE id = ? LIMIT 1",
+        [reportId],
+      );
+      return res.json(rows[0] || null);
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to update report" });
+    }
+  },
+);
+
+app.get("/admin/activity-logs", requireRole(["admin"]), async (req, res) => {
+  try {
+    const limit = Math.min(1000, Math.max(1, Number(req.query.limit || 200)));
+    const [rows] = await mysqlPool.query(
+      `SELECT a.id, a.action, a.entity_type, a.entity_id, a.details, a.ip_address, a.created_at,
+              u.email AS user_email, u.role AS user_role
+       FROM activity_logs a
+       LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.created_at DESC
+       LIMIT ?`,
+      [limit],
+    );
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load activity logs" });
+  }
+});
+
 app.post("/auth/register", csrfProtection, async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email, and password are required" });
+      return res
+        .status(400)
+        .json({ message: "Name, email, and password are required" });
     }
     if (!emailRegex.test(email)) {
       return res.status(400).json({ message: "Invalid email address" });
@@ -570,7 +1339,9 @@ app.post("/auth/login", csrfProtection, async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
-      return res.status(400).json({ message: "Email and password are required" });
+      return res
+        .status(400)
+        .json({ message: "Email and password are required" });
     }
     if (!emailRegex.test(email)) {
       return res.status(400).json({ message: "Invalid email address" });
@@ -618,8 +1389,7 @@ app.post("/auth/logout", authenticateJwt, csrfProtection, async (req, res) => {
       details: null,
       ipAddress: normalizeIp(getRequestIp(req)),
     });
-  } catch {
-  }
+  } catch {}
   clearAuthCookie(res);
   return res.json({ success: true });
 });
@@ -737,8 +1507,9 @@ const buildInvoiceNumber = () => {
 const cloverAccessToken = process.env.CLOVER_ACCESS_TOKEN;
 const cloverApiBaseUrl =
   process.env.CLOVER_API_BASE_URL || "https://scl-sandbox.dev.clover.com";
-const cloverDefaultCurrency =
-  (process.env.CLOVER_DEFAULT_CURRENCY || "gbp").toLowerCase();
+const cloverDefaultCurrency = (
+  process.env.CLOVER_DEFAULT_CURRENCY || "gbp"
+).toLowerCase();
 
 const createPaymentRecord = async ({
   userId,
@@ -1134,6 +1905,143 @@ app.post(
   },
 );
 
+app.post("/payments/request", async (req, res) => {
+  try {
+    const { userId, amount, paymentMethod, currency, metadata } =
+      req.body || {};
+    const resolvedMethod = String(paymentMethod || "")
+      .trim()
+      .toLowerCase();
+    const supportedMethods = ["bkash", "nagad", "stripe"];
+    const resolvedAmount = Number(amount || 0);
+
+    if (!supportedMethods.includes(resolvedMethod)) {
+      return res.status(400).json({ message: "Unsupported payment method" });
+    }
+    if (!Number.isFinite(resolvedAmount) || resolvedAmount <= 0) {
+      return res.status(400).json({ message: "Valid amount is required" });
+    }
+
+    const transactionId = `txn_${randomUUID().replace(/-/g, "")}`;
+    await createPaymentRecord({
+      userId: Number.isFinite(Number(userId)) ? Number(userId) : null,
+      transactionId,
+      amount: resolvedAmount,
+      paymentMethod: resolvedMethod,
+      status: "pending",
+      metadata: {
+        currency: String(currency || "BDT").toUpperCase(),
+        providerStatus: "created",
+        ...(metadata && typeof metadata === "object" ? metadata : {}),
+      },
+    });
+
+    return res.status(201).json({
+      transactionId,
+      status: "pending",
+      paymentMethod: resolvedMethod,
+      redirectUrl: `/payments/${resolvedMethod}/checkout?transactionId=${transactionId}`,
+      futureReady: resolvedMethod === "stripe",
+    });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to create payment request" });
+  }
+});
+
+app.post("/payments/verify", async (req, res) => {
+  try {
+    const { transactionId, status, verificationData } = req.body || {};
+    const resolvedStatus = String(status || "")
+      .trim()
+      .toLowerCase();
+    if (
+      !transactionId ||
+      !["success", "failed", "pending"].includes(resolvedStatus)
+    ) {
+      return res.status(400).json({ message: "Invalid verification payload" });
+    }
+
+    const [rows] = await mysqlPool.query(
+      "SELECT id, metadata FROM payments WHERE transaction_id = ? LIMIT 1",
+      [transactionId],
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ message: "Transaction not found" });
+    }
+
+    let existingMetadata = {};
+    try {
+      existingMetadata = rows[0].metadata ? JSON.parse(rows[0].metadata) : {};
+    } catch {
+      existingMetadata = {};
+    }
+
+    await mysqlPool.query(
+      "UPDATE payments SET status = ?, metadata = ?, updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?",
+      [
+        resolvedStatus,
+        JSON.stringify({
+          ...existingMetadata,
+          providerStatus: resolvedStatus,
+          verificationData: verificationData || null,
+        }),
+        transactionId,
+      ],
+    );
+
+    return res.json({ transactionId, status: resolvedStatus });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to verify payment" });
+  }
+});
+
+app.post("/payments/callback/:method", async (req, res) => {
+  try {
+    const method = String(req.params.method || "")
+      .trim()
+      .toLowerCase();
+    const { transaction_id, status, payload } = req.body || {};
+    const transactionId = String(transaction_id || "").trim();
+    const normalizedStatus = String(status || "pending")
+      .trim()
+      .toLowerCase();
+
+    if (!["bkash", "nagad", "stripe"].includes(method)) {
+      return res.status(400).json({ message: "Unsupported callback method" });
+    }
+    if (!transactionId) {
+      return res.status(400).json({ message: "transaction_id is required" });
+    }
+
+    const resolvedStatus = ["success", "failed", "pending"].includes(
+      normalizedStatus,
+    )
+      ? normalizedStatus
+      : "pending";
+
+    await mysqlPool.query(
+      "UPDATE payments SET status = ?, metadata = JSON_MERGE_PATCH(COALESCE(metadata, JSON_OBJECT()), ?), updated_at = CURRENT_TIMESTAMP WHERE transaction_id = ?",
+      [
+        resolvedStatus,
+        JSON.stringify({
+          callbackMethod: method,
+          callbackPayload: payload || req.body || null,
+          callbackAt: new Date().toISOString(),
+        }),
+        transactionId,
+      ],
+    );
+
+    return res.json({ received: true, transactionId, status: resolvedStatus });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to process payment callback" });
+  }
+});
+
 app.post("/payments/intent", async (req, res) => {
   if (!stripe) {
     return res.status(500).json({ message: "Stripe is not configured" });
@@ -1209,7 +2117,7 @@ app.post("/payments/intent", async (req, res) => {
   }
 });
 
-app.post("/payments/clover/charge", authenticateJwt, csrfProtection, async (req, res) => {
+app.post("/payments/clover/charge", async (req, res) => {
   try {
     if (!cloverAccessToken) {
       return res
@@ -1217,17 +2125,67 @@ app.post("/payments/clover/charge", authenticateJwt, csrfProtection, async (req,
         .json({ message: "Clover is not configured on the server" });
     }
 
-    const { source, amount, currency } = req.body || {};
+    const {
+      source,
+      amount,
+      currency,
+      email,
+      userId,
+      items,
+      deliveryFee,
+      loyaltyDiscount,
+      promoCode,
+      total,
+    } = req.body || {};
     const numericAmount = Number(amount || 0);
+    let promoDiscount = 0;
+
+    if (promoCode) {
+      const promoResult = await validatePromotion({
+        code: promoCode,
+        subtotal: items?.reduce(
+          (sum, item) => sum + (Number(item?.totalPrice) || 0),
+          0,
+        ),
+        userId,
+        email,
+      });
+      if (!promoResult.isValid) {
+        return res
+          .status(400)
+          .json({ message: promoResult.message || "Invalid promo code" });
+      }
+      promoDiscount = promoResult.discount;
+    }
+
+    const calculatedTotal = calculateOrderTotal(
+      items,
+      deliveryFee,
+      loyaltyDiscount,
+      promoDiscount,
+    );
+    const expected = Number(total || numericAmount || 0);
 
     if (!source || typeof source !== "string") {
-      return res.status(400).json({ message: "Clover source token is required" });
+      return res
+        .status(400)
+        .json({ message: "Clover source token is required" });
     }
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    if (
+      !items?.length ||
+      !Number.isFinite(calculatedTotal) ||
+      calculatedTotal <= 0 ||
+      Math.abs(calculatedTotal - expected) > 0.01
+    ) {
+      return res.status(400).json({ message: "Invalid order total" });
+    }
+    if (!Number.isFinite(numericAmount) && !Number.isFinite(calculatedTotal)) {
       return res.status(400).json({ message: "Valid amount is required" });
     }
 
-    const minorUnits = Math.round(numericAmount * 100);
+    const resolvedAmount =
+      calculatedTotal > 0 ? calculatedTotal : numericAmount;
+    const minorUnits = Math.round(resolvedAmount * 100);
     const resolvedCurrency = (currency || cloverDefaultCurrency).toLowerCase();
     const clientIp = normalizeIp(getRequestIp(req));
 
@@ -1276,31 +2234,38 @@ app.post("/payments/clover/charge", authenticateJwt, csrfProtection, async (req,
           : "failed";
 
     await createPaymentRecord({
-      userId: req.user?.id,
+      userId: Number.isFinite(Number(userId)) ? Number(userId) : null,
       transactionId,
-      amount: numericAmount,
+      amount: resolvedAmount,
       paymentMethod: "clover",
       status: normalizedStatus,
       metadata: {
         cloverStatus,
+        email,
       },
     });
 
     await logActivity({
-      userId: req.user?.id,
+      userId: Number.isFinite(Number(userId)) ? Number(userId) : null,
       action: "payment_clover_charge",
       entityType: "payment",
       entityId: transactionId,
-      details: JSON.stringify({ amount: numericAmount, currency: resolvedCurrency }),
+      details: JSON.stringify({
+        amount: resolvedAmount,
+        currency: resolvedCurrency,
+      }),
       ipAddress: clientIp,
     });
 
     return res.status(201).json({
       transactionId,
       status: normalizedStatus,
+      promoDiscount,
     });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to process Clover payment" });
+    return res
+      .status(500)
+      .json({ message: "Failed to process Clover payment" });
   }
 });
 
@@ -1338,9 +2303,9 @@ app.post("/orders", async (req, res) => {
       subtotal,
       deliveryFee,
       loyaltyDiscount,
-      total,
       promoCode,
       paymentMethod,
+      paymentIntentId,
       paymentStatus,
       notes,
     } = req.body;
@@ -1430,6 +2395,7 @@ app.post("/orders", async (req, res) => {
       invoiceNumber: buildInvoiceNumber(),
       promoCode: resolvedPromoCode,
       promoDiscount,
+      paymentIntentId,
     });
 
     const contactPhone = order.address?.phone;
@@ -1485,7 +2451,11 @@ app.patch("/orders/:id/status", requireAdmin, async (req, res) => {
       });
     }
 
-    if (normalizedStatus === "Delivered" && previousStatus !== "Delivered" && order.userId) {
+    if (
+      normalizedStatus === "Delivered" &&
+      previousStatus !== "Delivered" &&
+      order.userId
+    ) {
       const profile = await UserProfile.findOne({ uid: order.userId });
       if (profile) {
         const nextStamps = (profile.loyaltyStamps || 0) + 1;
