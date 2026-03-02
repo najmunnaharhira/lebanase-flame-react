@@ -14,15 +14,29 @@ const isStrongPassword = (password: string) => {
 
 const Auth = () => {
   const navigate = useNavigate();
-  const { signIn, signUp } = useAuth();
+  const { signIn, signInWithGoogle, signUp } = useAuth();
   const { toast } = useToast();
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [name, setName] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const handleGoogleSignIn = async () => {
+    setError("");
+    setIsGoogleSubmitting(true);
+    try {
+      await signInWithGoogle();
+      toast({ title: "Signed in", description: "Welcome to Lebanese Flames." });
+      navigate("/profile");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google sign-in failed");
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -116,6 +130,18 @@ const Auth = () => {
             <Button type="submit" variant="flame" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
             </Button>
+
+            {mode === "login" && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleGoogleSignIn}
+                disabled={isGoogleSubmitting}
+              >
+                {isGoogleSubmitting ? "Connecting Google..." : "Continue with Google"}
+              </Button>
+            )}
           </form>
 
           <div className="mt-6 text-center text-sm text-muted-foreground">

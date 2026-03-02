@@ -17,13 +17,14 @@ const passwordHasLetter = (password: string) => /[A-Za-z]/.test(password);
 const passwordHasNumber = (password: string) => /\d/.test(password);
 
 export const AuthModal = ({ open, onOpenChange }: AuthModalProps) => {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signInWithGoogle, signUp } = useAuth();
   const { toast } = useToast();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const title = useMemo(
     () => (mode === "login" ? "Welcome back" : "Create your account"),
@@ -84,6 +85,25 @@ export const AuthModal = ({ open, onOpenChange }: AuthModalProps) => {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setIsGoogleSubmitting(true);
+    try {
+      await signInWithGoogle();
+      toast({ title: "Signed in", description: "Welcome to Lebanese Flames." });
+      onOpenChange(false);
+      resetForm();
+    } catch (error) {
+      const message = error instanceof FirebaseError ? error.message : "Google sign-in failed.";
+      toast({
+        variant: "destructive",
+        title: "Authentication failed",
+        description: message,
+      });
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -140,6 +160,18 @@ export const AuthModal = ({ open, onOpenChange }: AuthModalProps) => {
           <Button type="submit" variant="flame" className="w-full" disabled={isSubmitting}>
             {isSubmitting ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
           </Button>
+
+          {mode === "login" && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={handleGoogleSignIn}
+              disabled={isGoogleSubmitting}
+            >
+              {isGoogleSubmitting ? "Connecting Google..." : "Continue with Google"}
+            </Button>
+          )}
         </form>
 
         <div className="text-center text-sm text-muted-foreground">

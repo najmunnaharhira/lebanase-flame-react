@@ -1,3 +1,4 @@
+import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -5,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { setAdminSession } from "@/lib/adminAuth";
 import { apiRequest } from "@/lib/api";
+import { auth } from "@/lib/firebase";
 
 interface AdminLoginResponse {
   accessToken: string;
@@ -24,6 +26,7 @@ const AdminLogin = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -47,6 +50,39 @@ const AdminLogin = () => {
     }
 
     setIsSubmitting(false);
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError("");
+    setIsGoogleSubmitting(true);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const googleResult = await signInWithPopup(auth, provider);
+      const idToken = await googleResult.user.getIdToken();
+
+      const response = await apiRequest<AdminLoginResponse>("/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ idToken }),
+      });
+
+      if (!["admin", "moderator", "editor"].includes(response.user.role)) {
+        await signOut(auth);
+        throw new Error("This Google account is not allowed to access admin panel.");
+      }
+
+      setAdminSession({
+        accessToken: response.accessToken,
+        user: response.user,
+        permissions: response.permissions || [],
+      });
+      navigate("/admin/orders");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Google sign-in failed.");
+    } finally {
+      setIsGoogleSubmitting(false);
+    }
   };
 
   return (
@@ -83,6 +119,15 @@ const AdminLogin = () => {
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" variant="flame" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Checking..." : "Sign In"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={isGoogleSubmitting}
+              onClick={handleGoogleSignIn}
+            >
+              {isGoogleSubmitting ? "Connecting Google..." : "Continue with Google"}
             </Button>
           </form>
         </div>

@@ -114,6 +114,25 @@ cd frontend
 npm run dev
 ```
 
+## Production smoke check
+
+From the workspace root, run:
+
+```sh
+npm run smoke:prod
+```
+
+This command validates:
+- frontend production build
+- admin production build
+- backend syntax check
+
+If you also want to run MySQL migration as part of the smoke check:
+
+```sh
+npm run smoke:prod:db
+```
+
 ## Common Errors
 
 ### `Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'stripe'`

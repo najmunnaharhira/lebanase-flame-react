@@ -1,21 +1,22 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { CartProvider } from "@/context/CartContext";
-import { AuthProvider } from "@/context/AuthContext";
+import About from "./pages/About";
+import Auth from "./pages/Auth";
+import Cart from "./pages/Cart";
+import Checkout from "./pages/Checkout";
+import Contact from "./pages/Contact";
 import Index from "./pages/Index";
 import Menu from "./pages/Menu";
-import Cart from "./pages/Cart";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Auth from "./pages/Auth";
-import Checkout from "./pages/Checkout";
-import Profile from "./pages/Profile";
+import NotFound from "./pages/NotFound";
+import OfferPopup from "@/components/OfferPopup";
 import OrderConfirmation from "./pages/OrderConfirmation";
 import OrderTracking from "./pages/OrderTracking";
-import NotFound from "./pages/NotFound";
+import Profile from "./pages/Profile";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/context/AuthContext";
+import { CartProvider } from "@/context/CartContext";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <OfferPopup />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/menu" element={<Menu />} />

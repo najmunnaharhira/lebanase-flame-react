@@ -1,0 +1,9 @@
+{
+  "name": "lebanese-flames-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "smoke:prod": "npm --prefix frontend run build && npm --prefix admin run build && node --check backend/index.js",
+    "smoke:prod:db": "npm run smoke:prod && npm --prefix backend run migrate:mysql"
+  }
+}
