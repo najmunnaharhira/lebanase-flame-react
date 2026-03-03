@@ -2,8 +2,8 @@ import dotenv from "dotenv";
 
 dotenv.config({ path: new URL("../.env", import.meta.url) });
 
-const adminEmail = process.env.ADMIN_EMAIL || "admin@gmail.com";
-const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
+const adminEmail = process.env.ADMIN_EMAIL || "";
+const adminPassword = process.env.ADMIN_PASSWORD || "";
 
 let firebaseAuth = null;
 
@@ -67,7 +67,7 @@ export const verifyAdminAuth = async (req, res, next) => {
       ? req.headers["x-admin-password"]
       : "";
 
-  if (email === adminEmail && password === adminPassword) {
+  if (adminEmail && adminPassword && email === adminEmail && password === adminPassword) {
     req.admin = { email, provider: "headers" };
     return next();
   }

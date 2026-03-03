@@ -130,9 +130,8 @@ const parseAllowedIps = (value) => {
 };
 
 const allowedIps = parseAllowedIps(process.env.ALLOWED_IPS);
-const allowLocalOnly = allowedIps.length === 0;
-const adminEmail = process.env.ADMIN_EMAIL || "admin@gmail.com";
-const adminPassword = process.env.ADMIN_PASSWORD || "Admin@123";
+const adminEmail = process.env.ADMIN_EMAIL || "";
+const adminPassword = process.env.ADMIN_PASSWORD || "";
 const jwtSecret = process.env.JWT_SECRET || "dev-secret";
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "1h";
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
@@ -152,20 +151,18 @@ app.use((req, res, next) => {
     return next();
   }
 
-  const requestIp = normalizeIp(getRequestIp(req));
-  if (allowLocalOnly) {
-    const isLocal =
-      requestIp === "127.0.0.1" ||
-      requestIp === "::1" ||
-      requestIp.startsWith("192.168.") ||
-      requestIp.startsWith("10.") ||
-      requestIp.startsWith("172.16.");
-    if (isLocal) {
-      return next();
-    }
+  if (allowedIps.length === 0) {
+    return next();
   }
 
-  if (allowedIps.length > 0 && allowedIps.includes(requestIp)) {
+  const requestIp = normalizeIp(getRequestIp(req));
+  const isLocal =
+    requestIp === "127.0.0.1" ||
+    requestIp === "::1" ||
+    requestIp.startsWith("192.168.") ||
+    requestIp.startsWith("10.") ||
+    requestIp.startsWith("172.16.");
+  if (isLocal || allowedIps.includes(requestIp)) {
     return next();
   }
 
@@ -252,7 +249,7 @@ const requireAdmin = (req, res, next) => {
       ? req.headers["x-admin-password"]
       : "";
 
-  if (email === adminEmail && password === adminPassword) {
+  if (adminEmail && adminPassword && email === adminEmail && password === adminPassword) {
     req.user = {
       id: "env-admin",
       email: adminEmail,
@@ -668,6 +665,7 @@ app.post("/admin/auth/login", async (req, res) => {
 
     if (
       !user &&
+      adminEmail && adminPassword &&
       normalizedEmail === String(adminEmail).toLowerCase() &&
       normalizedPassword === String(adminPassword)
     ) {
@@ -686,6 +684,7 @@ app.post("/admin/auth/login", async (req, res) => {
 
     let isMatch = false;
     if (
+      adminEmail && adminPassword &&
       normalizedEmail === String(adminEmail).toLowerCase() &&
       normalizedPassword === String(adminPassword)
     ) {
@@ -3159,4 +3158,17 @@ app.put("/users/:uid", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`API listening on ${PORT}`);
+  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+    console.warn(
+      "[WARN] ADMIN_EMAIL and ADMIN_PASSWORD are not set. " +
+      "The header-based admin login will be disabled. " +
+      "Set these environment variables to enable it.",
+    );
+  }
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "dev-secret") {
+    console.warn(
+      "[WARN] JWT_SECRET is using the insecure default value. " +
+      "Set a strong random JWT_SECRET in production.",
+    );
+  }
 });
