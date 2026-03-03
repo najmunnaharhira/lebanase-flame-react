@@ -29,6 +29,7 @@ interface AnalyticsResponse {
   peakWindow: { label: string; orders: number; revenue: number };
   promoPerformance?: { code: string; orders: number; revenue: number; discount: number }[];
   cashbackSummary?: { today: number; week: number; month: number };
+  cashbackDaily?: { date: string; amount: number }[];
 }
 
 const AdminAnalytics = () => {
@@ -77,6 +78,14 @@ const AdminAnalytics = () => {
   const dailyChartData = useMemo(() => {
     if (!data) return [];
     return data.dailyOrders.map((entry) => ({
+      ...entry,
+      label: new Date(entry.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    }));
+  }, [data]);
+
+  const cashbackChartData = useMemo(() => {
+    if (!data?.cashbackDaily) return [];
+    return data.cashbackDaily.map((entry) => ({
       ...entry,
       label: new Date(entry.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
     }));
@@ -229,6 +238,20 @@ const AdminAnalytics = () => {
                   <p className="text-2xl font-semibold text-foreground">
                     £{Number(data.cashbackSummary?.month || 0).toFixed(2)}
                   </p>
+                </div>
+              </div>
+              <div className="mt-6">
+                <h3 className="text-sm font-medium text-foreground mb-3">Cashback per day (last 7 days)</h3>
+                <div className="h-44">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={cashbackChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip formatter={(value: number | string) => [`£${Number(value).toFixed(2)}`, "Cashback"]} />
+                      <Line type="monotone" dataKey="amount" stroke="#22c55e" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             </div>

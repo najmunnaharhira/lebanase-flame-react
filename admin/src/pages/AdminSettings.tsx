@@ -68,10 +68,7 @@ const defaultOfferPopup = {
 const AdminSettings = () => {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<BusinessSettings>({
-<<<<<<< Updated upstream
     businessName: "Lebanese Flames",
-=======
->>>>>>> Stashed changes
     logoUrl: "",
     openingHours: buildDefaultHours(),
     holidayClosures: [],
@@ -103,10 +100,7 @@ const AdminSettings = () => {
         }
         const data = await response.json();
         setSettings({
-<<<<<<< Updated upstream
           businessName: data.businessName || "Lebanese Flames",
-=======
->>>>>>> Stashed changes
           logoUrl: data.logoUrl || "",
           openingHours: data.openingHours?.length ? data.openingHours : buildDefaultHours(),
           holidayClosures: data.holidayClosures || [],
@@ -145,11 +139,8 @@ const AdminSettings = () => {
       return () => URL.revokeObjectURL(objectUrl);
     }
 
-<<<<<<< Updated upstream
     setLogoPreview(resolveAssetUrl(settings.logoUrl || ""));
-=======
-    setLogoPreview((settings.logoUrl || "").trim());
->>>>>>> Stashed changes
+  setLogoPreview(resolveAssetUrl(settings.logoUrl || ""));
   }, [logoFile, settings.logoUrl]);
 
   const handleHourChange = (index: number, field: keyof OpeningHour, value: string | boolean) => {
@@ -215,7 +206,6 @@ const AdminSettings = () => {
         },
         body: JSON.stringify({
           ...settings,
-<<<<<<< Updated upstream
           businessName: (settings.businessName || "").trim() || "Lebanese Flames",
           logoUrl: resolvedLogoUrl,
           paymentSettings: {
@@ -252,9 +242,6 @@ const AdminSettings = () => {
             ctaLink: (settings.offerPopup?.ctaLink || "/menu").trim(),
             cashbackAmount: Math.max(0, Number(settings.offerPopup?.cashbackAmount || 0)),
           },
-=======
-          logoUrl: resolvedLogoUrl,
->>>>>>> Stashed changes
         }),
       });
 
@@ -265,10 +252,7 @@ const AdminSettings = () => {
 
       const data = await response.json();
       setSettings({
-<<<<<<< Updated upstream
         businessName: data.businessName || "Lebanese Flames",
-=======
->>>>>>> Stashed changes
         logoUrl: data.logoUrl || "",
         openingHours: data.openingHours || buildDefaultHours(),
         holidayClosures: data.holidayClosures || [],
@@ -321,7 +305,6 @@ const AdminSettings = () => {
         <div className="bg-card rounded-2xl shadow-card p-6">
           <h2 className="font-display text-lg font-semibold text-foreground mb-4">Branding</h2>
           <div className="grid gap-3 md:grid-cols-2">
-<<<<<<< Updated upstream
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="business-name">Business name</Label>
               <Input
@@ -336,8 +319,6 @@ const AdminSettings = () => {
                 }
               />
             </div>
-=======
->>>>>>> Stashed changes
             <div className="space-y-2">
               <Label htmlFor="logo-url">Website logo URL</Label>
               <Input

@@ -140,10 +140,7 @@ export const demoMenuItems = [
 ];
 
 export const demoBusinessSettings: BusinessSettings = {
-<<<<<<< Updated upstream
   businessName: "Lebanese Flames",
-=======
->>>>>>> Stashed changes
   logoUrl: "",
   openingHours: [
     { day: "Monday", open: "12:00", close: "23:00", closed: false },
@@ -232,6 +229,14 @@ export const demoAnalytics = {
     week: 96,
     month: 348,
   },
+  cashbackDaily: Array.from({ length: 7 }, (_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - index));
+    return {
+      date: date.toISOString().slice(0, 10),
+      amount: [8, 10, 12, 14, 16, 18, 18][index],
+    };
+  }),
 };
 
 export const demoPromotions = [

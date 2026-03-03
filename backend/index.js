@@ -1929,21 +1929,6 @@ app.post("/auth/logout", authenticateJwt, csrfProtection, async (req, res) => {
   return res.json({ success: true });
 });
 
-<<<<<<< Updated upstream
-=======
-const getBusinessSettings = async () => {
-  let settings = await BusinessSettings.findOne().lean();
-  if (!settings) {
-    settings = await BusinessSettings.create({
-      logoUrl: "",
-      openingHours: defaultOpeningHours,
-      holidayClosures: [],
-    });
-  }
-  return settings;
-};
-
->>>>>>> Stashed changes
 const clampLoyaltyDiscount = (subtotal, discount) => {
   const maxDiscount = Number(subtotal || 0) * 0.5;
   return Math.max(0, Math.min(Number(discount || 0), maxDiscount));
@@ -2043,18 +2028,6 @@ const buildInvoiceNumber = () => {
   return `LF-${stamp}-${rand}`;
 };
 
-<<<<<<< Updated upstream
-=======
-const cloverAccessToken = process.env.CLOVER_ACCESS_TOKEN;
-const cloverPrivateKey = process.env.CLOVER_PRIVATE_KEY;
-const cloverMerchantId = process.env.CLOVER_MERCHANT_ID;
-const cloverApiBaseUrl =
-  process.env.CLOVER_API_BASE_URL || "https://scl-sandbox.dev.clover.com";
-const cloverDefaultCurrency = (
-  process.env.CLOVER_DEFAULT_CURRENCY || "gbp"
-).toLowerCase();
-
->>>>>>> Stashed changes
 const createPaymentRecord = async ({
   userId,
   transactionId,
@@ -2851,13 +2824,9 @@ app.post("/payments/clover/charge", async (req, res) => {
 
 app.post("/payments/clover/hosted-checkout", async (req, res) => {
   try {
-<<<<<<< Updated upstream
     const paymentSettings = await getResolvedPaymentSettings();
 
     if (!paymentSettings.cloverPrivateKey || !paymentSettings.cloverMerchantId) {
-=======
-    if (!cloverPrivateKey || !cloverMerchantId) {
->>>>>>> Stashed changes
       return res
         .status(500)
         .json({ message: "Clover hosted checkout is not configured on the server" });
@@ -2865,7 +2834,6 @@ app.post("/payments/clover/hosted-checkout", async (req, res) => {
 
     const { items, email, total, returnUrl } = req.body || {};
 
-<<<<<<< Updated upstream
     if (!items?.length || !Number.isFinite(Number(total)) || Number(total) <= 0) {
       return res.status(400).json({ message: "Invalid order items or total" });
     }
@@ -2910,55 +2878,6 @@ app.post("/payments/clover/hosted-checkout", async (req, res) => {
 
     const text = await response.text();
     if (!response.ok) {
-=======
-    if (!items?.length) {
-      return res.status(400).json({ message: "Cart items are required" });
-    }
-    const numericTotal = Number(total || 0);
-    if (!Number.isFinite(numericTotal) || numericTotal <= 0) {
-      return res.status(400).json({ message: "Valid total is required" });
-    }
-    if (!returnUrl || typeof returnUrl !== "string") {
-      return res.status(400).json({ message: "Return URL is required" });
-    }
-
-    const lineItems = items.map((item) => ({
-      name: item.menuItem?.name || item.name || "Item",
-      unitQty: item.quantity || 1,
-      price: Math.round((Number(item.totalPrice) || 0) * 100),
-    }));
-
-    const checkoutBody = {
-      customer: { email: email || undefined },
-      shoppingCart: {
-        lineItems,
-        total: Math.round(numericTotal * 100),
-        currency: cloverDefaultCurrency.toUpperCase(),
-      },
-      redirectUrls: {
-        success: returnUrl,
-        failure: returnUrl,
-        cancel: returnUrl,
-      },
-    };
-
-    const cloverResponse = await fetch(
-      `${cloverApiBaseUrl}/invoicingcheckoutservice/v1/checkouts`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Bearer ${cloverPrivateKey}`,
-          "X-Clover-Merchant-Id": cloverMerchantId,
-        },
-        body: JSON.stringify(checkoutBody),
-      },
-    );
-
-    const text = await cloverResponse.text();
-    if (!cloverResponse.ok) {
->>>>>>> Stashed changes
       let payload;
       try {
         payload = JSON.parse(text);
@@ -2966,11 +2885,7 @@ app.post("/payments/clover/hosted-checkout", async (req, res) => {
         payload = null;
       }
       return res.status(400).json({
-<<<<<<< Updated upstream
         message: payload?.message || "Clover hosted checkout creation failed",
-=======
-        message: payload?.message || "Failed to create Clover checkout session",
->>>>>>> Stashed changes
       });
     }
 
@@ -2984,7 +2899,6 @@ app.post("/payments/clover/hosted-checkout", async (req, res) => {
     const checkoutUrl = data.href;
     const sessionId = data.checkoutSessionId;
 
-<<<<<<< Updated upstream
     if (!checkoutUrl || !sessionId) {
       return res.status(500).json({ message: "Clover did not return a valid checkout session" });
     }
@@ -2996,51 +2910,23 @@ app.post("/payments/clover/hosted-checkout", async (req, res) => {
       paymentMethod: "clover_hosted",
       status: "pending",
       metadata: { sessionId, email },
-=======
-    if (!checkoutUrl) {
-      return res.status(500).json({ message: "No checkout URL returned from Clover" });
-    }
-
-    const clientIp = normalizeIp(getRequestIp(req));
-
-    await createPaymentRecord({
-      userId: null,
-      transactionId: sessionId || "pending",
-      amount: numericTotal,
-      paymentMethod: "clover",
-      status: "pending",
-      metadata: { email, checkoutSessionId: sessionId, type: "hosted_checkout" },
->>>>>>> Stashed changes
     });
 
     await logActivity({
       userId: null,
-<<<<<<< Updated upstream
       action: "payment_clover_hosted_checkout_created",
       entityType: "payment",
       entityId: sessionId,
       details: JSON.stringify({ total, email }),
-=======
-      action: "payment_clover_hosted_checkout",
-      entityType: "payment",
-      entityId: sessionId,
-      details: JSON.stringify({ amount: numericTotal, email }),
->>>>>>> Stashed changes
       ipAddress: clientIp,
     });
 
     return res.status(201).json({ checkoutUrl, sessionId });
   } catch (error) {
-<<<<<<< Updated upstream
     console.error("Clover hosted checkout error:", error);
     return res
       .status(500)
       .json({ message: "Failed to create Clover hosted checkout" });
-=======
-    return res
-      .status(500)
-      .json({ message: "Failed to create Clover checkout session" });
->>>>>>> Stashed changes
   }
 });
 
@@ -3418,7 +3304,6 @@ app.get("/settings/business/admin", requireAdmin, async (_req, res) => {
 
 app.put("/settings/business", requireAdmin, async (req, res) => {
   try {
-<<<<<<< Updated upstream
     const {
       businessName,
       logoUrl,
@@ -3480,15 +3365,6 @@ app.put("/settings/business", requireAdmin, async (req, res) => {
       settings._id,
       {
         businessName: normalizedBusinessName,
-=======
-    const { logoUrl, openingHours, holidayClosures } = req.body || {};
-    const settings = await getBusinessSettings();
-    const normalizedLogoUrl =
-      typeof logoUrl === "string" ? logoUrl.trim() : settings.logoUrl || "";
-    const updated = await BusinessSettings.findByIdAndUpdate(
-      settings._id,
-      {
->>>>>>> Stashed changes
         logoUrl: normalizedLogoUrl,
         openingHours: openingHours || settings.openingHours,
         holidayClosures: holidayClosures || settings.holidayClosures,
@@ -3659,6 +3535,7 @@ app.get("/admin/analytics", requireAdmin, async (_req, res) => {
     const last7Keys = last7Days.map((date) => date.toISOString().slice(0, 10));
     const dailyCounts = new Map(last7Keys.map((key) => [key, 0]));
     const dailyRevenue = new Map(last7Keys.map((key) => [key, 0]));
+    const dailyCashback = new Map(last7Keys.map((key) => [key, 0]));
     const peakWindowStart = 18;
     const peakWindowEnd = 21;
     let peakWindowOrders = 0;
@@ -3716,6 +3593,10 @@ app.get("/admin/analytics", requireAdmin, async (_req, res) => {
         dailyRevenue.set(
           dayKey,
           dailyRevenue.get(dayKey) + (Number(order.total) || 0),
+        );
+        dailyCashback.set(
+          dayKey,
+          dailyCashback.get(dayKey) + cashback,
         );
       }
 
@@ -3781,6 +3662,10 @@ app.get("/admin/analytics", requireAdmin, async (_req, res) => {
         week: cashbackWeek,
         month: cashbackMonth,
       },
+      cashbackDaily: last7Keys.map((dateKey) => ({
+        date: dateKey,
+        amount: dailyCashback.get(dateKey) || 0,
+      })),
     });
   } catch (error) {
     res.status(500).json({ message: "Failed to load analytics" });
