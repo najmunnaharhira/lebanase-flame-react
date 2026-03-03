@@ -2,8 +2,10 @@ import { Bike, Store, MapPin, AlertCircle, CheckCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useCart } from "@/context/CartContext";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 export const DeliveryToggle = () => {
+  const businessName = useBusinessName();
   const { 
     deliveryMode, 
     setDeliveryMode, 
@@ -127,7 +129,7 @@ export const DeliveryToggle = () => {
         <div className="flex items-start gap-3 p-3 bg-muted rounded-xl">
           <Store className="w-5 h-5 text-primary mt-0.5" />
           <div>
-            <p className="font-body font-medium text-foreground">Lebanese Flames</p>
+            <p className="font-body font-medium text-foreground">{businessName}</p>
             <p className="text-sm text-muted-foreground">381 Footscray Road, New Eltham, London SE9 2DR</p>
             <p className="text-xs text-muted-foreground mt-1">Open: 12:00pm - 11:00pm daily</p>
           </div>

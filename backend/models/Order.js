@@ -32,6 +32,7 @@ const OrderSchema = new mongoose.Schema(
     subtotal: { type: Number, required: true },
     deliveryFee: { type: Number, required: true },
     loyaltyDiscount: { type: Number, default: 0 },
+    cashbackEarned: { type: Number, default: 0 },
     total: { type: Number, required: true },
     paymentMethod: { type: String, enum: ["card", "cash"], required: true },
     loyaltyRewardApplied: { type: Boolean, default: false },

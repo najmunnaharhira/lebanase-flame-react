@@ -1,8 +1,11 @@
 import chefImage from "@/assets/hero-food.jpg";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 export const AboutUs = () => {
+  const businessName = useBusinessName();
+
   return (
     <section className="py-12 md:py-16 bg-background">
       <div className="container">
@@ -12,7 +15,7 @@ export const AboutUs = () => {
               About Us
             </span>
             <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mt-2 mb-4">
-              Welcome to Lebanese Flames
+              Welcome to {businessName}
             </h2>
             <p className="text-muted-foreground font-body text-lg leading-relaxed mb-6">
               Proudly serving Eltham and SE9, we bring authentic Lebanese cooking to your
@@ -31,7 +34,7 @@ export const AboutUs = () => {
             <div className="aspect-[4/3] rounded-2xl overflow-hidden shadow-card">
               <img
                 src={chefImage}
-                alt="Lebanese Flames kitchen"
+                alt={`${businessName} kitchen`}
                 className="w-full h-full object-cover"
               />
             </div>

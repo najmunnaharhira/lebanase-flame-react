@@ -1,11 +1,12 @@
+import logo from "@/assets/logo.png";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { setAdminSession } from "@/lib/adminAuth";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, DEFAULT_BUSINESS_NAME, fetchBusinessBranding } from "@/lib/api";
 import { auth } from "@/lib/firebase";
 
 interface AdminLoginResponse {
@@ -27,6 +28,40 @@ const AdminLogin = () => {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+  const [logoSrc, setLogoSrc] = useState(logo);
+  const [businessName, setBusinessName] = useState(DEFAULT_BUSINESS_NAME);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const logoCacheKey = "lf_logo_admin";
+    const nameCacheKey = "lf_name_admin";
+
+    const cachedLogo = sessionStorage.getItem(logoCacheKey);
+    if (cachedLogo) {
+      setLogoSrc(cachedLogo);
+    }
+
+    const cachedName = sessionStorage.getItem(nameCacheKey);
+    if (cachedName) {
+      setBusinessName(cachedName);
+    }
+
+    const loadBranding = async () => {
+      try {
+        const branding = await fetchBusinessBranding(controller.signal);
+        if (branding.logoUrl) {
+          setLogoSrc(branding.logoUrl);
+          sessionStorage.setItem(logoCacheKey, branding.logoUrl);
+        }
+        setBusinessName(branding.businessName || DEFAULT_BUSINESS_NAME);
+        sessionStorage.setItem(nameCacheKey, branding.businessName || DEFAULT_BUSINESS_NAME);
+      } catch {
+      }
+    };
+
+    loadBranding();
+    return () => controller.abort();
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -60,11 +95,13 @@ const AdminLogin = () => {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       const googleResult = await signInWithPopup(auth, provider);
-      const idToken = await googleResult.user.getIdToken();
+      const credential = GoogleAuthProvider.credentialFromResult(googleResult);
+      const idToken = String(credential?.idToken || "").trim();
+      const firebaseIdToken = await googleResult.user.getIdToken();
 
       const response = await apiRequest<AdminLoginResponse>("/auth/google", {
         method: "POST",
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ idToken, firebaseIdToken }),
       });
 
       if (!["admin", "manager", "moderator", "editor"].includes(response.user.role)) {
@@ -89,11 +126,19 @@ const AdminLogin = () => {
     <div className="min-h-screen bg-background">
       <main className="container py-10 md:py-16">
         <div className="max-w-md mx-auto bg-card rounded-2xl shadow-card p-6 md:p-8">
+          <div className="mb-5 flex justify-center">
+            <img
+              src={logoSrc}
+              alt={businessName}
+              className="h-16 w-auto"
+              onError={() => setLogoSrc(logo)}
+            />
+          </div>
           <h1 className="font-display text-2xl font-bold text-foreground mb-2">
             Admin access
           </h1>
           <p className="text-sm text-muted-foreground mb-6">
-            Sign in to manage the menu and upload new items.
+            Sign in to manage {businessName} menu and upload new items.
           </p>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">

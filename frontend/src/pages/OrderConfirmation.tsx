@@ -4,11 +4,13 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/api";
+import { useBusinessName } from "@/hooks/useBusinessName";
 import { OrderRecord } from "@/types/order";
 
 const OrderConfirmation = () => {
   const { orderId } = useParams<{ orderId: string }>();
   const [order, setOrder] = useState<OrderRecord | null>(null);
+  const businessName = useBusinessName();
 
   useEffect(() => {
     if (!orderId) return;
@@ -32,7 +34,7 @@ const OrderConfirmation = () => {
             Order confirmed
           </h1>
           <p className="text-muted-foreground mb-6">
-            Thanks for ordering with Lebanese Flames. Your order has been received and we are preparing your food. Check your email for the itemized receipt and invoice.
+            Thanks for ordering with {businessName}. Your order has been received and we are preparing your food. Check your email for the itemized receipt and invoice.
           </p>
           <div className="bg-muted rounded-xl p-4 text-sm text-muted-foreground mb-6">
             Order reference: <span className="font-semibold text-foreground">{orderId}</span>
@@ -54,6 +56,11 @@ const OrderConfirmation = () => {
                       : `${order.paymentMethod} (${order.paymentStatus})`}
                 </span>
               </div>
+              {Number(order.cashbackEarned || 0) > 0 && (
+                <div>
+                  Cashback earned: <span className="font-semibold text-foreground">£{Number(order.cashbackEarned).toFixed(2)}</span>
+                </div>
+              )}
               {order.receiptEmailSent && (
                 <div>
                   Receipt sent to <span className="font-semibold text-foreground">{order.email}</span>

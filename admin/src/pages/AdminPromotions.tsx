@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
 import { demoInactiveCustomers, demoPromotions } from "@/lib/adminDemoData";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, DEFAULT_BUSINESS_NAME, fetchBusinessBranding } from "@/lib/api";
 import { Promotion } from "@/types/promotion";
 
 const defaultForm = {
@@ -28,7 +28,8 @@ const AdminPromotions = () => {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [form, setForm] = useState(defaultForm);
   const [inactiveCustomers, setInactiveCustomers] = useState<{ email: string; lastOrderAt: string }[]>([]);
-  const [campaignSubject, setCampaignSubject] = useState("We miss you at Lebanese Flames");
+  const [businessName, setBusinessName] = useState(DEFAULT_BUSINESS_NAME);
+  const [campaignSubject, setCampaignSubject] = useState(`We miss you at ${DEFAULT_BUSINESS_NAME}`);
   const [campaignMessage, setCampaignMessage] = useState(
     "It’s been a while! Enjoy a special offer on your next order."
   );
@@ -61,7 +62,22 @@ const AdminPromotions = () => {
       }
     };
 
+    const loadBranding = async () => {
+      try {
+        const branding = await fetchBusinessBranding();
+        const resolvedName = branding.businessName || DEFAULT_BUSINESS_NAME;
+        setBusinessName(resolvedName);
+        setCampaignSubject((prev) =>
+          prev === `We miss you at ${DEFAULT_BUSINESS_NAME}`
+            ? `We miss you at ${resolvedName}`
+            : prev,
+        );
+      } catch {
+      }
+    };
+
     loadPromotions();
+    loadBranding();
   }, [navigate]);
 
   const handleLogout = () => {
@@ -178,7 +194,7 @@ const AdminPromotions = () => {
       <main className="container py-10 md:py-16 space-y-6">
         <AdminHeader
           title="Promotions"
-          subtitle="Create promo codes, first-order deals, and limited-time offers."
+          subtitle={`Create promo codes, first-order deals, and limited-time offers for ${businessName}.`}
           onLogout={handleLogout}
           isDemoMode={isDemoMode}
         />

@@ -20,6 +20,7 @@ export interface OrderInput {
   loyaltyDiscount: number;
   promoCode?: string;
   promoDiscount?: number;
+  cashbackEarned?: number;
   total: number;
   paymentMethod: "card" | "cash";
   invoiceNumber?: string;

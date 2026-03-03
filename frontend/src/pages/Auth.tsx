@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 const isStrongPassword = (password: string) => {
   return password.trim().length >= 6 && /[A-Za-z]/.test(password) && /\d/.test(password);
@@ -23,13 +24,14 @@ const Auth = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const businessName = useBusinessName();
 
   const handleGoogleSignIn = async () => {
     setError("");
     setIsGoogleSubmitting(true);
     try {
       await signInWithGoogle();
-      toast({ title: "Signed in", description: "Welcome to Lebanese Flames." });
+      toast({ title: "Signed in", description: `Welcome to ${businessName}.` });
       navigate("/profile");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed");
@@ -52,7 +54,7 @@ const Auth = () => {
     try {
       if (mode === "login") {
         await signIn(email, password);
-        toast({ title: "Signed in", description: "Welcome back to Lebanese Flames." });
+        toast({ title: "Signed in", description: `Welcome back to ${businessName}.` });
       } else {
         if (!isStrongPassword(password)) {
           toast({
@@ -85,7 +87,7 @@ const Auth = () => {
           <p className="text-sm text-muted-foreground mb-6">
             {mode === "login"
               ? "Sign in to manage your addresses and orders."
-              : "Join Lebanese Flames to save your details and track orders."}
+              : `Join ${businessName} to save your details and track orders.`}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">

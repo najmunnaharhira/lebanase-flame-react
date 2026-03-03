@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, fetchPublicPaymentSettings } from "@/lib/api";
 import { Address, OrderInput, UserProfile } from "@/types/order";
 
 /**
@@ -29,12 +29,14 @@ const emptyAddress: Address = {
   postcode: "",
 };
 
-const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
-const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
-const cloverEnabled = String(import.meta.env.VITE_CLOVER_ENABLED || "").toLowerCase() === "true";
 const abandonedPromoLink = import.meta.env.VITE_ABANDONED_PROMO_LINK || "";
 
-const CheckoutContent = () => {
+interface CheckoutContentProps {
+  stripePublishableKey: string;
+  cloverEnabled: boolean;
+}
+
+const CheckoutContent = ({ stripePublishableKey, cloverEnabled }: CheckoutContentProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const {
@@ -504,7 +506,7 @@ const CheckoutContent = () => {
                 </div>
                 {!isCardConfigured && (
                   <p className="text-xs text-muted-foreground">
-                    Card payments are offline. Add `VITE_STRIPE_PUBLISHABLE_KEY` or enable Clover to use card checkout.
+                    Card payments are offline. Configure Stripe/Clover in Admin Settings to enable card checkout.
                   </p>
                 )}
               </div>
@@ -685,10 +687,46 @@ const CheckoutContent = () => {
   );
 };
 
-const Checkout = () => (
-  <Elements stripe={stripePromise}>
-    <CheckoutContent />
-  </Elements>
-);
+const Checkout = () => {
+  const [paymentSettings, setPaymentSettings] = useState({
+    stripePublishableKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "",
+    cloverEnabled:
+      String(import.meta.env.VITE_CLOVER_ENABLED || "").toLowerCase() === "true",
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const loadPaymentSettings = async () => {
+      try {
+        const data = await fetchPublicPaymentSettings(controller.signal);
+        setPaymentSettings((prev) => ({
+          stripePublishableKey: data.stripePublishableKey || prev.stripePublishableKey,
+          cloverEnabled: data.cloverEnabled,
+        }));
+      } catch {
+      }
+    };
+
+    loadPaymentSettings();
+    return () => controller.abort();
+  }, []);
+
+  const stripePromise = useMemo(
+    () =>
+      paymentSettings.stripePublishableKey
+        ? loadStripe(paymentSettings.stripePublishableKey)
+        : null,
+    [paymentSettings.stripePublishableKey],
+  );
+
+  return (
+    <Elements stripe={stripePromise}>
+      <CheckoutContent
+        stripePublishableKey={paymentSettings.stripePublishableKey}
+        cloverEnabled={paymentSettings.cloverEnabled}
+      />
+    </Elements>
+  );
+};
 
 export default Checkout;

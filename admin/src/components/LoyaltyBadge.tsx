@@ -3,8 +3,10 @@ import { useCart } from "@/context/CartContext";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 export const LoyaltyBadge = () => {
+  const businessName = useBusinessName();
   const { orderCount, hasReward, isRewardApplied, applyLoyaltyReward, subtotal } = useCart();
   const totalOrders = 5;
   const progress = Math.min((orderCount / totalOrders) * 100, 100);
@@ -85,7 +87,7 @@ export const LoyaltyBadge = () => {
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="font-display font-semibold text-foreground mb-1">
-            Flames Loyalty
+            {businessName} Loyalty
           </h3>
           <p className="text-sm text-muted-foreground font-body mb-3">
             {ordersRemaining === 0 

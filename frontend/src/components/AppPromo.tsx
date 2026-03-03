@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Smartphone } from "lucide-react";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 export const AppPromo = () => {
+  const businessName = useBusinessName();
+
   return (
     <section className="py-12 md:py-16 bg-muted">
       <div className="container">
@@ -11,11 +14,11 @@ export const AppPromo = () => {
               A new way to order
             </span>
             <h2 className="font-display text-3xl md:text-4xl font-bold text-foreground mt-2 mb-4">
-              Order Lebanese Flames on your phone
+              Order {businessName} on your phone
             </h2>
             <p className="text-muted-foreground text-lg leading-relaxed">
               Save your favourites, reorder in seconds, and track every delivery. The
-              Lebanese Flames experience is built for UK mobile ordering.
+              {` ${businessName} experience is built for UK mobile ordering.`}
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-4">

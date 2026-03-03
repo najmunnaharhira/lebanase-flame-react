@@ -19,13 +19,22 @@ const emptyAddress: Address = {
   postcode: "",
 };
 
+const emptyPersonalDetails = {
+  fullName: "",
+  phone: "",
+  dateOfBirth: "",
+  preferredContact: "email" as "email" | "phone",
+};
+
 const Profile = () => {
   const { user, isLoading, signOutUser } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [personalDetails, setPersonalDetails] = useState(emptyPersonalDetails);
   const [address, setAddress] = useState<Address>(emptyAddress);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   const isLoggedIn = !!user;
   const displayEmail = user?.email || "";
@@ -44,6 +53,13 @@ const Profile = () => {
       try {
         const fetchedProfile = await apiRequest<UserProfile>(`/users/${user.uid}`);
         setProfile(fetchedProfile);
+        setPersonalDetails({
+          fullName: fetchedProfile.fullName || "",
+          phone: fetchedProfile.phone || "",
+          dateOfBirth: fetchedProfile.dateOfBirth || "",
+          preferredContact:
+            fetchedProfile.preferredContact === "phone" ? "phone" : "email",
+        });
         if (fetchedProfile.addresses?.length) {
           setAddress(fetchedProfile.addresses[0]);
         }
@@ -69,26 +85,58 @@ const Profile = () => {
     setAddress((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSaveAddress = async () => {
+  const handlePersonalDetailsChange = (
+    field: keyof typeof emptyPersonalDetails,
+    value: string,
+  ) => {
+    setPersonalDetails((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveProfile = async (payload: Partial<UserProfile>, successMessage: string) => {
     if (!user) return;
+
     setIsSaving(true);
     setError("");
+    setMessage("");
 
     try {
       const updatedProfile = await apiRequest<UserProfile>(`/users/${user.uid}`, {
         method: "PUT",
         body: JSON.stringify({
           uid: user.uid,
-          email: user.email,
-          addresses: [address],
+          ...payload,
         }),
       });
       setProfile(updatedProfile);
+      setMessage(successMessage);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save address");
+      setError(err instanceof Error ? err.message : "Unable to save profile");
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSavePersonalDetails = async () => {
+    await saveProfile(
+      {
+        email: user?.email || "",
+        fullName: personalDetails.fullName,
+        phone: personalDetails.phone,
+        dateOfBirth: personalDetails.dateOfBirth,
+        preferredContact: personalDetails.preferredContact,
+      },
+      "Personal details saved.",
+    );
+  };
+
+  const handleSaveAddress = async () => {
+    await saveProfile(
+      {
+        email: user?.email || "",
+        addresses: [address],
+      },
+      "Address saved.",
+    );
   };
 
   if (isLoading) {
@@ -135,6 +183,64 @@ const Profile = () => {
 
         <div className="grid lg:grid-cols-3 gap-8">
           <section className="lg:col-span-2 space-y-6">
+            <div className="bg-card rounded-2xl shadow-card p-6">
+              <h2 className="font-display text-xl font-semibold text-foreground mb-4">
+                Personal Details
+              </h2>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="profile-fullName">Full name</Label>
+                  <Input
+                    id="profile-fullName"
+                    value={personalDetails.fullName}
+                    onChange={(event) =>
+                      handlePersonalDetailsChange("fullName", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="profile-phone">Phone</Label>
+                  <Input
+                    id="profile-phone"
+                    value={personalDetails.phone}
+                    onChange={(event) =>
+                      handlePersonalDetailsChange("phone", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="profile-dob">Date of birth</Label>
+                  <Input
+                    id="profile-dob"
+                    type="date"
+                    value={personalDetails.dateOfBirth}
+                    onChange={(event) =>
+                      handlePersonalDetailsChange("dateOfBirth", event.target.value)
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="profile-contact">Preferred contact</Label>
+                  <select
+                    id="profile-contact"
+                    value={personalDetails.preferredContact}
+                    onChange={(event) =>
+                      handlePersonalDetailsChange("preferredContact", event.target.value)
+                    }
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="email">Email</option>
+                    <option value="phone">Phone</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 mt-6">
+                <Button variant="flame" onClick={handleSavePersonalDetails} disabled={isSaving}>
+                  {isSaving ? "Saving..." : "Save Personal Details"}
+                </Button>
+              </div>
+            </div>
+
             <div className="bg-card rounded-2xl shadow-card p-6">
               <h2 className="font-display text-xl font-semibold text-foreground mb-4">
                 Saved Address
@@ -199,8 +305,10 @@ const Profile = () => {
                   </span>
                 )}
               </div>
-              {error && <p className="text-sm text-destructive mt-3">{error}</p>}
             </div>
+
+            {message && <p className="text-sm text-emerald-600">{message}</p>}
+            {error && <p className="text-sm text-destructive">{error}</p>}
 
             <div className="bg-card rounded-2xl shadow-card p-6">
               <h2 className="font-display text-xl font-semibold text-foreground mb-4">

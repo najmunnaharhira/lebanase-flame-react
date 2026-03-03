@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const businessName = useBusinessName();
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -46,7 +48,7 @@ const Auth = () => {
           <p className="text-sm text-muted-foreground mb-6">
             {mode === "login"
               ? "Sign in to manage your addresses and orders."
-              : "Join Lebanese Flames to save your details and track orders."}
+              : `Join ${businessName} to save your details and track orders.`}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">

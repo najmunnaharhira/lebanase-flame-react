@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 interface AuthModalProps {
   open: boolean;
@@ -25,6 +26,7 @@ export const AuthModal = ({ open, onOpenChange }: AuthModalProps) => {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
+  const businessName = useBusinessName();
 
   const title = useMemo(
     () => (mode === "login" ? "Welcome back" : "Create your account"),
@@ -65,7 +67,7 @@ export const AuthModal = ({ open, onOpenChange }: AuthModalProps) => {
     try {
       if (mode === "login") {
         await signIn(email.trim(), password);
-        toast({ title: "Signed in", description: "Welcome back to Lebanese Flames." });
+        toast({ title: "Signed in", description: `Welcome back to ${businessName}.` });
       } else {
         await signUp(name.trim(), email.trim(), password);
         toast({ title: "Account created", description: "Your account is ready." });
@@ -89,7 +91,7 @@ export const AuthModal = ({ open, onOpenChange }: AuthModalProps) => {
     setIsGoogleSubmitting(true);
     try {
       await signInWithGoogle();
-      toast({ title: "Signed in", description: "Welcome to Lebanese Flames." });
+      toast({ title: "Signed in", description: `Welcome to ${businessName}.` });
       onOpenChange(false);
       resetForm();
     } catch (error) {

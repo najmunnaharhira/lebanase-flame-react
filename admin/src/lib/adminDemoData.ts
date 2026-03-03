@@ -85,9 +85,16 @@ export const demoOrders = [
 ];
 
 export const demoCategories = [
-  { id: "grills", name: "Grills", icon: "🔥" },
-  { id: "wraps", name: "Wraps", icon: "🌯" },
-  { id: "sides", name: "Sides", icon: "🍟" },
+  { id: "cold-starters", name: "Cold Starters", icon: "🥗", sortOrder: 1 },
+  { id: "hot-starters", name: "Hot Starters", icon: "🔥", sortOrder: 2 },
+  { id: "main-courses", name: "Main Courses", icon: "🍗", sortOrder: 3 },
+  { id: "wraps-burgers", name: "Wraps & Burgers", icon: "🌯", sortOrder: 4 },
+  { id: "sides-extras", name: "Sides & Extras", icon: "🍟", sortOrder: 5 },
+  { id: "hand-crafted-dips", name: "Hand Crafted Dips", icon: "🍯", sortOrder: 6 },
+  { id: "family-platters", name: "Family Platters", icon: "👨‍👩‍👧", sortOrder: 7 },
+  { id: "desserts", name: "Desserts", icon: "🍰", sortOrder: 8 },
+  { id: "drinks", name: "Drinks", icon: "🥤", sortOrder: 9 },
+  { id: "lunch-deals", name: "Lunch Deals", icon: "🕒", sortOrder: 10 },
 ];
 
 export const demoMenuItems = [
@@ -133,6 +140,8 @@ export const demoMenuItems = [
 ];
 
 export const demoBusinessSettings: BusinessSettings = {
+  businessName: "Lebanese Flames",
+  logoUrl: "",
   openingHours: [
     { day: "Monday", open: "12:00", close: "23:00", closed: false },
     { day: "Tuesday", open: "12:00", close: "23:00", closed: false },
@@ -143,6 +152,39 @@ export const demoBusinessSettings: BusinessSettings = {
     { day: "Sunday", open: "13:00", close: "22:00", closed: false },
   ],
   holidayClosures: [{ date: "2026-12-25", note: "Christmas Day" }],
+  paymentSettings: {
+    stripePublishableKey: "",
+    stripeSecretKey: "",
+    stripeWebhookSecret: "",
+    cloverEnabled: false,
+    cloverAccessToken: "",
+    cloverPrivateKey: "",
+    cloverMerchantId: "",
+    cloverApiBaseUrl: "https://scl-sandbox.dev.clover.com",
+    cloverDefaultCurrency: "gbp",
+  },
+  aboutChef: {
+    sectionTitle: "Meet Our Chef",
+    chefName: "Chef Ahmad Khoury",
+    bio: "Born in Beirut and trained in the finest Lebanese kitchens, Chef Ahmad brings over two decades of culinary expertise to Eltham. Every dish is crafted with love, using traditional family recipes passed down through generations.",
+    imageUrl: "",
+    experienceText: "20+ Years Experience",
+  },
+  contactInfo: {
+    phone: "07466 305 669",
+    email: "hello@lebaneseflames.co.uk",
+    address: "381 Footscray Road, New Eltham, London SE9 2DR",
+    whatsapp: "447466305669",
+  },
+  offerPopup: {
+    enabled: true,
+    title: "Welcome Offer 🔥",
+    description: "Get 10% OFF your first order with code WELCOME10.",
+    promoCode: "WELCOME10",
+    ctaText: "Order now",
+    ctaLink: "/menu",
+    cashbackAmount: 0,
+  },
 };
 
 export const demoAnalytics = {
@@ -182,6 +224,11 @@ export const demoAnalytics = {
     };
   }),
   peakWindow: { label: "6-9 PM", orders: 47, revenue: 1224 },
+  cashbackSummary: {
+    today: 18,
+    week: 96,
+    month: 348,
+  },
 };
 
 export const demoPromotions = [

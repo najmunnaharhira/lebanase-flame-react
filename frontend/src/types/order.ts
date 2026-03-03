@@ -20,6 +20,7 @@ export interface OrderInput {
   loyaltyDiscount: number;
   promoCode?: string;
   promoDiscount?: number;
+  cashbackEarned?: number;
   total: number;
   paymentMethod: "card" | "cash";
   invoiceNumber?: string;
@@ -38,6 +39,11 @@ export interface OrderRecord extends OrderInput {
 export interface UserProfile {
   uid: string;
   email: string;
+  fullName?: string;
+  phone?: string;
+  dateOfBirth?: string;
+  preferredContact?: "email" | "phone";
   addresses: Address[];
   rewardPoints?: number;
+  cashbackBalance?: number;
 }

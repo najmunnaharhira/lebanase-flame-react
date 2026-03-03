@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { FirebaseError } from "firebase/app";
 import { API_BASE_URL } from "@/lib/api";
 import { auth } from "@/lib/firebase";
 
@@ -23,6 +24,30 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+const mapGoogleAuthError = (error: unknown) => {
+  if (error instanceof FirebaseError) {
+    if (error.code === "auth/unauthorized-domain") {
+      const domain =
+        typeof window !== "undefined" ? window.location.host : "current domain";
+      return `Google sign-in is not enabled for ${domain}. Add this domain in Firebase Console → Authentication → Settings → Authorized domains, then try again.`;
+    }
+
+    if (error.code === "auth/popup-blocked") {
+      return "Popup was blocked by the browser. Allow popups for this site and try Google sign-in again.";
+    }
+
+    if (error.code === "auth/popup-closed-by-user") {
+      return "Google sign-in was closed before completion. Please try again.";
+    }
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return "Google sign-in failed";
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -59,22 +84,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return result.user;
     },
     signInWithGoogle: async () => {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
+      try {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
 
-      const result = await signInWithPopup(auth, provider);
-      const idToken = await result.user.getIdToken();
+        const result = await signInWithPopup(auth, provider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const idToken = String(credential?.idToken || "").trim();
+        const firebaseIdToken = await result.user.getIdToken();
 
-      await fetch(`${API_BASE_URL}/auth/google`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ idToken }),
-      });
+        if (!idToken && !firebaseIdToken) {
+          throw new Error("Google sign-in did not return an ID token");
+        }
 
-      return result.user;
+        const response = await fetch(`${API_BASE_URL}/auth/google`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ idToken, firebaseIdToken }),
+        });
+
+        if (!response.ok) {
+          let message = "Failed to sign in with Google";
+          try {
+            const payload = await response.json();
+            if (payload?.message) {
+              message = String(payload.message);
+            }
+          } catch {
+          }
+          throw new Error(message);
+        }
+
+        return result.user;
+      } catch (error) {
+        throw new Error(mapGoogleAuthError(error));
+      }
     },
     signOutUser: () => signOut(auth),
   }), [user, isLoading]);

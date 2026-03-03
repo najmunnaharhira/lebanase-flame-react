@@ -16,6 +16,14 @@ const UserProfileSchema = new mongoose.Schema(
   {
     uid: { type: String, unique: true, required: true },
     email: { type: String, required: true },
+    fullName: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    dateOfBirth: { type: String, default: "" },
+    preferredContact: {
+      type: String,
+      enum: ["email", "phone", ""],
+      default: "email",
+    },
     addresses: { type: [AddressSchema], default: [] },
     completedOrders: { type: Number, default: 0 },
     loyaltyStamps: { type: Number, default: 0 },

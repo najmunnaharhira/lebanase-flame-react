@@ -44,9 +44,44 @@ const corsOrigin = (process.env.CORS_ORIGIN || "")
   .map((entry) => entry.trim())
   .filter(Boolean);
 
+const isDevEnvironment = process.env.NODE_ENV !== "production";
+const isDevNetworkOrigin = (origin) => {
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return false;
+    }
+
+    const isLocalhost = ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+    const isPrivateLan = /^192\.168\.\d{1,3}\.\d{1,3}$/.test(parsed.hostname);
+
+    return isLocalhost || isPrivateLan;
+  } catch {
+    return false;
+  }
+};
+
 app.use(
   cors({
-    origin: corsOrigin.length > 0 ? corsOrigin : true,
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (corsOrigin.length === 0 || corsOrigin.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      if (isDevEnvironment && isDevNetworkOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
   }),
 );
@@ -135,6 +170,7 @@ const adminPassword = process.env.ADMIN_PASSWORD || "";
 const jwtSecret = process.env.JWT_SECRET || "dev-secret";
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "1h";
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || "";
 
 const getRequestIp = (req) => {
   const forwarded = req.headers["x-forwarded-for"];
@@ -281,17 +317,28 @@ if (!mongoUri) {
   throw new Error("MONGODB_URI is missing in environment variables");
 }
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-const stripe = stripeSecretKey
-  ? new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" })
-  : null;
-const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const envStripeSecretKey = process.env.STRIPE_SECRET_KEY || "";
+const envStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+const envStripePublishableKey = process.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
+
+const envCloverAccessToken = process.env.CLOVER_ACCESS_TOKEN || "";
+const envCloverPrivateKey = process.env.CLOVER_PRIVATE_KEY || "";
+const envCloverMerchantId = process.env.CLOVER_MERCHANT_ID || "";
+const envCloverApiBaseUrl =
+  process.env.CLOVER_API_BASE_URL || "https://scl-sandbox.dev.clover.com";
+const envCloverDefaultCurrency =
+  (process.env.CLOVER_DEFAULT_CURRENCY || "gbp").toLowerCase();
 
 app.post(
   "/payments/webhook",
   express.raw({ type: "application/json" }),
   async (req, res) => {
-    if (!stripe || !stripeWebhookSecret) {
+    const paymentSettings = await getResolvedPaymentSettings();
+    const stripe = paymentSettings.stripeSecretKey
+      ? new Stripe(paymentSettings.stripeSecretKey, { apiVersion: "2024-06-20" })
+      : null;
+
+    if (!stripe || !paymentSettings.stripeWebhookSecret) {
       return res.status(500).json({ message: "Stripe is not configured" });
     }
 
@@ -302,7 +349,7 @@ app.post(
       event = stripe.webhooks.constructEvent(
         req.body,
         signature,
-        stripeWebhookSecret,
+        paymentSettings.stripeWebhookSecret,
       );
     } catch (error) {
       return res.status(400).send(`Webhook Error: ${error.message}`);
@@ -454,6 +501,378 @@ const defaultOpeningHours = [
   { day: "Saturday", open: "12:00", close: "23:00", closed: false },
   { day: "Sunday", open: "12:00", close: "23:00", closed: false },
 ];
+
+const defaultPaymentSettings = {
+  stripePublishableKey: "",
+  stripeSecretKey: "",
+  stripeWebhookSecret: "",
+  cloverEnabled: false,
+  cloverAccessToken: "",
+  cloverPrivateKey: "",
+  cloverMerchantId: "",
+  cloverApiBaseUrl: "https://scl-sandbox.dev.clover.com",
+  cloverDefaultCurrency: "gbp",
+};
+
+const defaultAboutChef = {
+  sectionTitle: "Meet Our Chef",
+  chefName: "Chef Ahmad Khoury",
+  bio:
+    "Born in Beirut and trained in the finest Lebanese kitchens, Chef Ahmad brings over two decades of culinary expertise to Eltham. Every dish is crafted with love, using traditional family recipes passed down through generations.",
+  imageUrl: "",
+  experienceText: "20+ Years Experience",
+};
+
+const defaultContactInfo = {
+  phone: "07466 305 669",
+  email: "hello@lebaneseflames.co.uk",
+  address: "381 Footscray Road, New Eltham, London SE9 2DR",
+  whatsapp: "447466305669",
+};
+
+const defaultOfferPopup = {
+  enabled: true,
+  title: "Welcome Offer 🔥",
+  description: "Get 10% OFF your first order with code WELCOME10.",
+  promoCode: "WELCOME10",
+  ctaText: "Order now",
+  ctaLink: "/menu",
+  cashbackAmount: 0,
+};
+
+const getBusinessSettings = async () => {
+  let settings = await BusinessSettings.findOne().lean();
+  if (!settings) {
+    settings = await BusinessSettings.create({
+      businessName: "Lebanese Flames",
+      logoUrl: "",
+      openingHours: defaultOpeningHours,
+      holidayClosures: [],
+      paymentSettings: defaultPaymentSettings,
+      aboutChef: defaultAboutChef,
+      contactInfo: defaultContactInfo,
+      offerPopup: defaultOfferPopup,
+    });
+  }
+
+  return {
+    ...settings,
+    paymentSettings: {
+      ...defaultPaymentSettings,
+      ...(settings.paymentSettings || {}),
+    },
+    aboutChef: {
+      ...defaultAboutChef,
+      ...(settings.aboutChef || {}),
+    },
+    contactInfo: {
+      ...defaultContactInfo,
+      ...(settings.contactInfo || {}),
+    },
+    offerPopup: {
+      ...defaultOfferPopup,
+      ...(settings.offerPopup || {}),
+    },
+  };
+};
+
+const getResolvedPaymentSettings = async () => {
+  const settings = await getBusinessSettings();
+  const saved = settings.paymentSettings || defaultPaymentSettings;
+
+  return {
+    stripePublishableKey:
+      String(saved.stripePublishableKey || "").trim() || envStripePublishableKey,
+    stripeSecretKey:
+      String(saved.stripeSecretKey || "").trim() || envStripeSecretKey,
+    stripeWebhookSecret:
+      String(saved.stripeWebhookSecret || "").trim() || envStripeWebhookSecret,
+    cloverEnabled:
+      Boolean(saved.cloverEnabled) ||
+      Boolean(
+        String(saved.cloverAccessToken || "").trim() ||
+          String(saved.cloverPrivateKey || "").trim() ||
+          envCloverAccessToken ||
+          envCloverPrivateKey,
+      ),
+    cloverAccessToken:
+      String(saved.cloverAccessToken || "").trim() || envCloverAccessToken,
+    cloverPrivateKey:
+      String(saved.cloverPrivateKey || "").trim() || envCloverPrivateKey,
+    cloverMerchantId:
+      String(saved.cloverMerchantId || "").trim() || envCloverMerchantId,
+    cloverApiBaseUrl:
+      String(saved.cloverApiBaseUrl || "").trim() || envCloverApiBaseUrl,
+    cloverDefaultCurrency:
+      (String(saved.cloverDefaultCurrency || "").trim() ||
+        envCloverDefaultCurrency ||
+        "gbp")
+        .toLowerCase(),
+  };
+};
+
+const toPublicBusinessSettings = (settings) => ({
+  ...settings,
+  paymentSettings: {
+    stripePublishableKey: String(settings?.paymentSettings?.stripePublishableKey || "").trim(),
+    cloverEnabled: Boolean(settings?.paymentSettings?.cloverEnabled),
+  },
+});
+
+const toAdminBusinessSettings = (settings) => ({
+  ...settings,
+  paymentSettings: {
+    ...defaultPaymentSettings,
+    ...(settings?.paymentSettings || {}),
+  },
+});
+
+const buildStripeClient = (secretKey) =>
+  secretKey ? new Stripe(secretKey, { apiVersion: "2024-06-20" }) : null;
+
+const normalizePaymentSettingsInput = (raw, current) => {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const fallback = current || defaultPaymentSettings;
+
+  return {
+    stripePublishableKey:
+      typeof source.stripePublishableKey === "string"
+        ? source.stripePublishableKey.trim()
+        : String(fallback.stripePublishableKey || "").trim(),
+    stripeSecretKey:
+      typeof source.stripeSecretKey === "string"
+        ? source.stripeSecretKey.trim()
+        : String(fallback.stripeSecretKey || "").trim(),
+    stripeWebhookSecret:
+      typeof source.stripeWebhookSecret === "string"
+        ? source.stripeWebhookSecret.trim()
+        : String(fallback.stripeWebhookSecret || "").trim(),
+    cloverEnabled:
+      typeof source.cloverEnabled === "boolean"
+        ? source.cloverEnabled
+        : Boolean(fallback.cloverEnabled),
+    cloverAccessToken:
+      typeof source.cloverAccessToken === "string"
+        ? source.cloverAccessToken.trim()
+        : String(fallback.cloverAccessToken || "").trim(),
+    cloverPrivateKey:
+      typeof source.cloverPrivateKey === "string"
+        ? source.cloverPrivateKey.trim()
+        : String(fallback.cloverPrivateKey || "").trim(),
+    cloverMerchantId:
+      typeof source.cloverMerchantId === "string"
+        ? source.cloverMerchantId.trim()
+        : String(fallback.cloverMerchantId || "").trim(),
+    cloverApiBaseUrl:
+      typeof source.cloverApiBaseUrl === "string"
+        ? source.cloverApiBaseUrl.trim()
+        : String(fallback.cloverApiBaseUrl || defaultPaymentSettings.cloverApiBaseUrl),
+    cloverDefaultCurrency:
+      typeof source.cloverDefaultCurrency === "string"
+        ? source.cloverDefaultCurrency.trim().toLowerCase()
+        : String(fallback.cloverDefaultCurrency || defaultPaymentSettings.cloverDefaultCurrency)
+            .trim()
+            .toLowerCase(),
+  };
+};
+
+const validatePaymentSettingsInput = (paymentSettings) => {
+  const issues = [];
+
+  if (
+    paymentSettings.stripePublishableKey &&
+    !/^pk_(test|live)_/i.test(paymentSettings.stripePublishableKey)
+  ) {
+    issues.push("stripePublishableKey must start with pk_test_ or pk_live_");
+  }
+
+  if (
+    paymentSettings.stripeSecretKey &&
+    !/^sk_(test|live)_/i.test(paymentSettings.stripeSecretKey)
+  ) {
+    issues.push("stripeSecretKey must start with sk_test_ or sk_live_");
+  }
+
+  if (
+    paymentSettings.stripeWebhookSecret &&
+    !/^whsec_/i.test(paymentSettings.stripeWebhookSecret)
+  ) {
+    issues.push("stripeWebhookSecret must start with whsec_");
+  }
+
+  if (
+    paymentSettings.cloverApiBaseUrl &&
+    !/^https?:\/\//i.test(paymentSettings.cloverApiBaseUrl)
+  ) {
+    issues.push("cloverApiBaseUrl must be a valid absolute URL");
+  }
+
+  if (paymentSettings.cloverDefaultCurrency.length !== 3) {
+    issues.push("cloverDefaultCurrency must be a 3-letter currency code");
+  }
+
+  return issues;
+};
+
+const normalizeAboutChefInput = (raw, current) => {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const fallback = current || defaultAboutChef;
+
+  return {
+    sectionTitle:
+      typeof source.sectionTitle === "string"
+        ? source.sectionTitle.trim()
+        : String(fallback.sectionTitle || defaultAboutChef.sectionTitle).trim(),
+    chefName:
+      typeof source.chefName === "string"
+        ? source.chefName.trim()
+        : String(fallback.chefName || defaultAboutChef.chefName).trim(),
+    bio:
+      typeof source.bio === "string"
+        ? source.bio.trim()
+        : String(fallback.bio || defaultAboutChef.bio).trim(),
+    imageUrl:
+      typeof source.imageUrl === "string"
+        ? source.imageUrl.trim()
+        : String(fallback.imageUrl || defaultAboutChef.imageUrl).trim(),
+    experienceText:
+      typeof source.experienceText === "string"
+        ? source.experienceText.trim()
+        : String(fallback.experienceText || defaultAboutChef.experienceText).trim(),
+  };
+};
+
+const normalizeContactInfoInput = (raw, current) => {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const fallback = current || defaultContactInfo;
+
+  return {
+    phone:
+      typeof source.phone === "string"
+        ? source.phone.trim()
+        : String(fallback.phone || defaultContactInfo.phone).trim(),
+    email:
+      typeof source.email === "string"
+        ? source.email.trim()
+        : String(fallback.email || defaultContactInfo.email).trim(),
+    address:
+      typeof source.address === "string"
+        ? source.address.trim()
+        : String(fallback.address || defaultContactInfo.address).trim(),
+    whatsapp:
+      typeof source.whatsapp === "string"
+        ? source.whatsapp.trim()
+        : String(fallback.whatsapp || defaultContactInfo.whatsapp).trim(),
+  };
+};
+
+const validateAboutChefInput = (aboutChef) => {
+  const issues = [];
+
+  if (!aboutChef.sectionTitle || aboutChef.sectionTitle.length > 80) {
+    issues.push("aboutChef.sectionTitle is required and must be 80 characters or less");
+  }
+  if (!aboutChef.chefName || aboutChef.chefName.length > 80) {
+    issues.push("aboutChef.chefName is required and must be 80 characters or less");
+  }
+  if (!aboutChef.bio || aboutChef.bio.length > 1200) {
+    issues.push("aboutChef.bio is required and must be 1200 characters or less");
+  }
+  if (aboutChef.experienceText.length > 60) {
+    issues.push("aboutChef.experienceText must be 60 characters or less");
+  }
+  if (
+    aboutChef.imageUrl &&
+    !/^https?:\/\//i.test(aboutChef.imageUrl) &&
+    !aboutChef.imageUrl.startsWith("/uploads/") &&
+    !aboutChef.imageUrl.startsWith("uploads/")
+  ) {
+    issues.push("aboutChef.imageUrl must be an absolute URL or an uploads path");
+  }
+
+  return issues;
+};
+
+const validateContactInfoInput = (contactInfo) => {
+  const issues = [];
+
+  if (!contactInfo.phone || contactInfo.phone.length > 40) {
+    issues.push("contactInfo.phone is required and must be 40 characters or less");
+  }
+  if (!contactInfo.email || contactInfo.email.length > 120 || !emailRegex.test(contactInfo.email)) {
+    issues.push("contactInfo.email must be a valid email address");
+  }
+  if (!contactInfo.address || contactInfo.address.length > 200) {
+    issues.push("contactInfo.address is required and must be 200 characters or less");
+  }
+  if (contactInfo.whatsapp && contactInfo.whatsapp.length > 20) {
+    issues.push("contactInfo.whatsapp must be 20 characters or less");
+  }
+
+  return issues;
+};
+
+const normalizeOfferPopupInput = (raw, current) => {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const fallback = current || defaultOfferPopup;
+
+  return {
+    enabled:
+      typeof source.enabled === "boolean"
+        ? source.enabled
+        : Boolean(fallback.enabled),
+    title:
+      typeof source.title === "string"
+        ? source.title.trim()
+        : String(fallback.title || defaultOfferPopup.title).trim(),
+    description:
+      typeof source.description === "string"
+        ? source.description.trim()
+        : String(fallback.description || defaultOfferPopup.description).trim(),
+    promoCode:
+      typeof source.promoCode === "string"
+        ? source.promoCode.trim().toUpperCase()
+        : String(fallback.promoCode || defaultOfferPopup.promoCode)
+            .trim()
+            .toUpperCase(),
+    ctaText:
+      typeof source.ctaText === "string"
+        ? source.ctaText.trim()
+        : String(fallback.ctaText || defaultOfferPopup.ctaText).trim(),
+    ctaLink:
+      typeof source.ctaLink === "string"
+        ? source.ctaLink.trim()
+        : String(fallback.ctaLink || defaultOfferPopup.ctaLink).trim(),
+    cashbackAmount: Number.isFinite(Number(source.cashbackAmount))
+      ? Math.max(0, Number(source.cashbackAmount))
+      : Math.max(0, Number(fallback.cashbackAmount || 0)),
+  };
+};
+
+const validateOfferPopupInput = (offerPopup) => {
+  const issues = [];
+
+  if (!offerPopup.title || offerPopup.title.length > 80) {
+    issues.push("offerPopup.title is required and must be 80 characters or less");
+  }
+  if (!offerPopup.description || offerPopup.description.length > 220) {
+    issues.push("offerPopup.description is required and must be 220 characters or less");
+  }
+  if (offerPopup.promoCode.length > 30) {
+    issues.push("offerPopup.promoCode must be 30 characters or less");
+  }
+  if (!offerPopup.ctaText || offerPopup.ctaText.length > 30) {
+    issues.push("offerPopup.ctaText is required and must be 30 characters or less");
+  }
+  if (!offerPopup.ctaLink || offerPopup.ctaLink.length > 120) {
+    issues.push("offerPopup.ctaLink is required and must be 120 characters or less");
+  }
+  if (offerPopup.cashbackAmount < 0 || offerPopup.cashbackAmount > 1000) {
+    issues.push("offerPopup.cashbackAmount must be between 0 and 1000");
+  }
+
+  return issues;
+};
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -753,28 +1172,42 @@ app.get("/auth/me", authenticateJwt, async (req, res) => {
 app.post("/auth/google", async (req, res) => {
   try {
     const idToken = String(req.body?.idToken || "").trim();
-    if (!idToken) {
+    const firebaseIdToken = String(req.body?.firebaseIdToken || "").trim();
+
+    if (!idToken && !firebaseIdToken) {
       return res.status(400).json({ message: "Google idToken is required" });
     }
-    if (!googleClientId) {
+
+    const acceptedAudiences = [googleClientId, firebaseProjectId].filter(Boolean);
+    if (acceptedAudiences.length === 0) {
       return res
         .status(500)
         .json({ message: "Google OAuth is not configured" });
     }
 
-    const googleRes = await fetch(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
-    );
+    const tokenCandidates = [idToken, firebaseIdToken].filter(Boolean);
+    let googleUser = null;
 
-    if (!googleRes.ok) {
-      return res.status(401).json({ message: "Invalid Google token" });
+    for (const candidate of tokenCandidates) {
+      const googleRes = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(candidate)}`,
+      );
+
+      if (!googleRes.ok) {
+        continue;
+      }
+
+      const payload = await googleRes.json();
+      if (!acceptedAudiences.includes(String(payload?.aud || ""))) {
+        continue;
+      }
+
+      googleUser = payload;
+      break;
     }
 
-    const googleUser = await googleRes.json();
-    if (googleUser.aud !== googleClientId) {
-      return res
-        .status(401)
-        .json({ message: "Google token audience mismatch" });
+    if (!googleUser) {
+      return res.status(401).json({ message: "Invalid Google token" });
     }
 
     const email = String(googleUser.email || "").toLowerCase();
@@ -1496,17 +1929,6 @@ app.post("/auth/logout", authenticateJwt, csrfProtection, async (req, res) => {
   return res.json({ success: true });
 });
 
-const getBusinessSettings = async () => {
-  let settings = await BusinessSettings.findOne().lean();
-  if (!settings) {
-    settings = await BusinessSettings.create({
-      openingHours: defaultOpeningHours,
-      holidayClosures: [],
-    });
-  }
-  return settings;
-};
-
 const clampLoyaltyDiscount = (subtotal, discount) => {
   const maxDiscount = Number(subtotal || 0) * 0.5;
   return Math.max(0, Math.min(Number(discount || 0), maxDiscount));
@@ -1605,15 +2027,6 @@ const buildInvoiceNumber = () => {
   const rand = Math.floor(1000 + Math.random() * 9000);
   return `LF-${stamp}-${rand}`;
 };
-
-const cloverAccessToken = process.env.CLOVER_ACCESS_TOKEN;
-const cloverPrivateKey = process.env.CLOVER_PRIVATE_KEY;
-const cloverMerchantId = process.env.CLOVER_MERCHANT_ID;
-const cloverApiBaseUrl =
-  process.env.CLOVER_API_BASE_URL || "https://scl-sandbox.dev.clover.com";
-const cloverDefaultCurrency = (
-  process.env.CLOVER_DEFAULT_CURRENCY || "gbp"
-).toLowerCase();
 
 const createPaymentRecord = async ({
   userId,
@@ -2175,6 +2588,9 @@ app.post("/payments/callback/:method", async (req, res) => {
 });
 
 app.post("/payments/intent", async (req, res) => {
+  const paymentSettings = await getResolvedPaymentSettings();
+  const stripe = buildStripeClient(paymentSettings.stripeSecretKey);
+
   if (!stripe) {
     return res.status(500).json({ message: "Stripe is not configured" });
   }
@@ -2251,7 +2667,8 @@ app.post("/payments/intent", async (req, res) => {
 
 app.post("/payments/clover/charge", async (req, res) => {
   try {
-    if (!cloverAccessToken) {
+    const paymentSettings = await getResolvedPaymentSettings();
+    if (!paymentSettings.cloverAccessToken) {
       return res
         .status(500)
         .json({ message: "Clover is not configured on the server" });
@@ -2318,14 +2735,18 @@ app.post("/payments/clover/charge", async (req, res) => {
     const resolvedAmount =
       calculatedTotal > 0 ? calculatedTotal : numericAmount;
     const minorUnits = Math.round(resolvedAmount * 100);
-    const resolvedCurrency = (currency || cloverDefaultCurrency).toLowerCase();
+    const resolvedCurrency = (
+      currency ||
+      paymentSettings.cloverDefaultCurrency ||
+      "gbp"
+    ).toLowerCase();
     const clientIp = normalizeIp(getRequestIp(req));
 
-    const response = await fetch(`${cloverApiBaseUrl}/v1/charges`, {
+    const response = await fetch(`${paymentSettings.cloverApiBaseUrl}/v1/charges`, {
       method: "POST",
       headers: {
         accept: "application/json",
-        authorization: `Bearer ${cloverAccessToken}`,
+        authorization: `Bearer ${paymentSettings.cloverAccessToken}`,
         "content-type": "application/json",
         "x-forwarded-for": clientIp,
       },
@@ -2403,7 +2824,9 @@ app.post("/payments/clover/charge", async (req, res) => {
 
 app.post("/payments/clover/hosted-checkout", async (req, res) => {
   try {
-    if (!cloverPrivateKey || !cloverMerchantId) {
+    const paymentSettings = await getResolvedPaymentSettings();
+
+    if (!paymentSettings.cloverPrivateKey || !paymentSettings.cloverMerchantId) {
       return res
         .status(500)
         .json({ message: "Clover hosted checkout is not configured on the server" });
@@ -2439,13 +2862,13 @@ app.post("/payments/clover/hosted-checkout", async (req, res) => {
 
     const clientIp = normalizeIp(getRequestIp(req));
     const response = await fetch(
-      `${cloverApiBaseUrl}/invoicingcheckoutservice/v1/checkouts`,
+      `${paymentSettings.cloverApiBaseUrl}/invoicingcheckoutservice/v1/checkouts`,
       {
         method: "POST",
         headers: {
           accept: "application/json",
-          authorization: `Bearer ${cloverPrivateKey}`,
-          "x-clover-merchant-id": cloverMerchantId,
+          authorization: `Bearer ${paymentSettings.cloverPrivateKey}`,
+          "x-clover-merchant-id": paymentSettings.cloverMerchantId,
           "content-type": "application/json",
           "x-forwarded-for": clientIp,
         },
@@ -2623,6 +3046,16 @@ app.post("/orders", async (req, res) => {
       promoDiscount,
     );
 
+    const currentSettings = await getBusinessSettings();
+    const cashbackEarned = Math.max(
+      0,
+      Number(
+        currentSettings?.offerPopup?.enabled
+          ? currentSettings?.offerPopup?.cashbackAmount
+          : 0,
+      ) || 0,
+    );
+
     const order = await Order.create({
       userId,
       email,
@@ -2632,6 +3065,7 @@ app.post("/orders", async (req, res) => {
       subtotal,
       deliveryFee,
       loyaltyDiscount: sanitizedLoyaltyDiscount,
+      cashbackEarned,
       total: recalculatedTotal,
       paymentMethod,
       paymentStatus:
@@ -2853,7 +3287,16 @@ app.post("/marketing/abandoned-cart", async (req, res) => {
 app.get("/settings/business", async (_req, res) => {
   try {
     const settings = await getBusinessSettings();
-    res.json(settings);
+    res.json(toPublicBusinessSettings(settings));
+  } catch (error) {
+    res.status(500).json({ message: "Failed to load business settings" });
+  }
+});
+
+app.get("/settings/business/admin", requireAdmin, async (_req, res) => {
+  try {
+    const settings = await getBusinessSettings();
+    res.json(toAdminBusinessSettings(settings));
   } catch (error) {
     res.status(500).json({ message: "Failed to load business settings" });
   }
@@ -2861,17 +3304,78 @@ app.get("/settings/business", async (_req, res) => {
 
 app.put("/settings/business", requireAdmin, async (req, res) => {
   try {
-    const { openingHours, holidayClosures } = req.body || {};
+    const {
+      businessName,
+      logoUrl,
+      openingHours,
+      holidayClosures,
+      paymentSettings,
+      aboutChef,
+      contactInfo,
+      offerPopup,
+    } = req.body || {};
     const settings = await getBusinessSettings();
+    const normalizedBusinessName =
+      typeof businessName === "string"
+        ? businessName.trim()
+        : settings.businessName || "Lebanese Flames";
+    const normalizedLogoUrl =
+      typeof logoUrl === "string" ? logoUrl.trim() : settings.logoUrl || "";
+
+    if (!normalizedBusinessName || normalizedBusinessName.length > 80) {
+      return res.status(400).json({
+        message: "businessName is required and must be 80 characters or less",
+      });
+    }
+
+    if (
+      normalizedLogoUrl &&
+      !/^https?:\/\//i.test(normalizedLogoUrl) &&
+      !normalizedLogoUrl.startsWith("/uploads/") &&
+      !normalizedLogoUrl.startsWith("uploads/")
+    ) {
+      return res.status(400).json({
+        message:
+          "logoUrl must be an absolute URL or an uploads path",
+      });
+    }
+
+    const normalizedPaymentSettings = normalizePaymentSettingsInput(
+      paymentSettings,
+      settings.paymentSettings,
+    );
+    const paymentIssues = validatePaymentSettingsInput(normalizedPaymentSettings);
+    const normalizedAboutChef = normalizeAboutChefInput(aboutChef, settings.aboutChef);
+    const normalizedContactInfo = normalizeContactInfoInput(contactInfo, settings.contactInfo);
+    const normalizedOfferPopup = normalizeOfferPopupInput(offerPopup, settings.offerPopup);
+    const aboutChefIssues = validateAboutChefInput(normalizedAboutChef);
+    const contactInfoIssues = validateContactInfoInput(normalizedContactInfo);
+    const offerPopupIssues = validateOfferPopupInput(normalizedOfferPopup);
+    const issues = [
+      ...paymentIssues,
+      ...aboutChefIssues,
+      ...contactInfoIssues,
+      ...offerPopupIssues,
+    ];
+    if (issues.length > 0) {
+      return res.status(400).json({ message: issues.join("; ") });
+    }
+
     const updated = await BusinessSettings.findByIdAndUpdate(
       settings._id,
       {
+        businessName: normalizedBusinessName,
+        logoUrl: normalizedLogoUrl,
         openingHours: openingHours || settings.openingHours,
         holidayClosures: holidayClosures || settings.holidayClosures,
+        paymentSettings: normalizedPaymentSettings,
+        aboutChef: normalizedAboutChef,
+        contactInfo: normalizedContactInfo,
+        offerPopup: normalizedOfferPopup,
       },
       { new: true },
     ).lean();
-    res.json(updated);
+    res.json(toAdminBusinessSettings(updated));
   } catch (error) {
     res.status(400).json({ message: "Failed to update business settings" });
   }
@@ -3036,6 +3540,20 @@ app.get("/admin/analytics", requireAdmin, async (_req, res) => {
     let peakWindowOrders = 0;
     let peakWindowRevenue = 0;
 
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfLast7Days = new Date(now);
+    startOfLast7Days.setDate(now.getDate() - 6);
+    startOfLast7Days.setHours(0, 0, 0, 0);
+    const startOfLast30Days = new Date(now);
+    startOfLast30Days.setDate(now.getDate() - 29);
+    startOfLast30Days.setHours(0, 0, 0, 0);
+
+    let cashbackToday = 0;
+    let cashbackWeek = 0;
+    let cashbackMonth = 0;
+
     orders.forEach((order) => {
       const hour = new Date(order.createdAt).getHours();
       hourCounts[hour] += 1;
@@ -3055,6 +3573,16 @@ app.get("/admin/analytics", requireAdmin, async (_req, res) => {
       }
 
       const created = new Date(order.createdAt);
+      const cashback = Number(order.cashbackEarned) || 0;
+      if (created >= startOfToday) {
+        cashbackToday += cashback;
+      }
+      if (created >= startOfLast7Days) {
+        cashbackWeek += cashback;
+      }
+      if (created >= startOfLast30Days) {
+        cashbackMonth += cashback;
+      }
       const weekday = created.getDay();
       weekdayCounts[weekday] += 1;
       weekdayRevenue[weekday] += Number(order.total) || 0;
@@ -3124,6 +3652,11 @@ app.get("/admin/analytics", requireAdmin, async (_req, res) => {
         orders: peakWindowOrders,
         revenue: peakWindowRevenue,
       },
+      cashbackSummary: {
+        today: cashbackToday,
+        week: cashbackWeek,
+        month: cashbackMonth,
+      },
     });
   } catch (error) {
     res.status(500).json({ message: "Failed to load analytics" });
@@ -3134,7 +3667,15 @@ app.get("/users/:uid", async (req, res) => {
   try {
     const profile = await UserProfile.findOne({ uid: req.params.uid }).lean();
     if (!profile) {
-      return res.json({ uid: req.params.uid, email: "", addresses: [] });
+      return res.json({
+        uid: req.params.uid,
+        email: "",
+        fullName: "",
+        phone: "",
+        dateOfBirth: "",
+        preferredContact: "email",
+        addresses: [],
+      });
     }
     res.json(profile);
   } catch (error) {
@@ -3144,10 +3685,43 @@ app.get("/users/:uid", async (req, res) => {
 
 app.put("/users/:uid", async (req, res) => {
   try {
-    const { email, addresses } = req.body;
+    const { email, addresses, fullName, phone, dateOfBirth, preferredContact } =
+      req.body || {};
+
+    const updateDoc = {
+      uid: req.params.uid,
+    };
+
+    if (typeof email === "string") {
+      updateDoc.email = email.trim();
+    }
+
+    if (Array.isArray(addresses)) {
+      updateDoc.addresses = addresses;
+    }
+
+    if (typeof fullName === "string") {
+      updateDoc.fullName = fullName.trim();
+    }
+
+    if (typeof phone === "string") {
+      updateDoc.phone = phone.trim();
+    }
+
+    if (typeof dateOfBirth === "string") {
+      updateDoc.dateOfBirth = dateOfBirth.trim();
+    }
+
+    if (
+      typeof preferredContact === "string" &&
+      ["email", "phone", ""].includes(preferredContact)
+    ) {
+      updateDoc.preferredContact = preferredContact;
+    }
+
     const profile = await UserProfile.findOneAndUpdate(
       { uid: req.params.uid },
-      { uid: req.params.uid, email: email || "", addresses: addresses || [] },
+      { $set: updateDoc },
       { new: true, upsert: true },
     ).lean();
     res.json(profile);

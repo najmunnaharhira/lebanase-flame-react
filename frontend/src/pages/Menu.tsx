@@ -8,6 +8,7 @@ import { Header } from "@/components/Header";
 import { LoyaltyBadge } from "@/components/LoyaltyBadge";
 import { StickyCartBar } from "@/components/StickyCartBar";
 import { apiRequest } from "@/lib/api";
+import { renderCategoryIcon } from "@/lib/categoryIcons";
 import { Category, MenuItem } from "@/types/menu";
 
 import {
@@ -172,7 +173,7 @@ const Menu = () => {
                 return activeCategory === "all" ? (
                   <div key={category.id} className="mb-10">
                     <h2 className="font-display text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
-                      <span>{category.icon}</span>
+                      <span>{renderCategoryIcon(category.icon, "h-5 w-5")}</span>
                       {category.name}
                     </h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">

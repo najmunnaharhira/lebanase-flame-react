@@ -1,7 +1,10 @@
 import { Phone, Mail, MapPin, Clock, Facebook, Instagram } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 export const Footer = () => {
+  const businessName = useBusinessName();
+
   return (
     <footer className="bg-charcoal text-cream">
       <div className="container py-12 md:py-16">
@@ -9,7 +12,7 @@ export const Footer = () => {
           {/* Brand */}
           <div>
             <h3 className="font-display text-2xl font-bold text-cream mb-4">
-              Lebanese Flames
+              {businessName}
             </h3>
             <p className="text-cream/70 font-body text-sm mb-4">
               We’re about authenticity, with expert staff cooking up mouthwatering Lebanese delicacies for Eltham and SE9.
@@ -89,7 +92,7 @@ export const Footer = () => {
         {/* Bottom */}
         <div className="border-t border-cream/10 mt-10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-cream/50 text-sm font-body">
-            © 2024 Lebanese Flames. All rights reserved.
+            © 2024 {businessName}. All rights reserved.
           </p>
           <div className="flex gap-6">
             <a href="#" className="text-cream/50 hover:text-cream text-sm font-body transition-colors">

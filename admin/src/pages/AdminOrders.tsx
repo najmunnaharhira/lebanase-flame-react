@@ -185,6 +185,11 @@ const AdminOrders = () => {
                     <span className="text-xs text-muted-foreground capitalize">
                       {order.paymentMethod}
                     </span>
+                    {Number(order.cashbackEarned || 0) > 0 && (
+                      <span className="text-xs text-emerald-600">
+                        Cashback £{Number(order.cashbackEarned).toFixed(2)}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

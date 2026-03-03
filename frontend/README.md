@@ -88,6 +88,8 @@ VITE_FIREBASE_APP_ID=your_app_id
 VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
 ```
 
+Use Firebase config values from your Firebase Console, but do not paste the HTML `<script type="module">...</script>` snippet into this app. This Vite project reads Firebase config from the `VITE_FIREBASE_*` variables in `src/lib/firebase.ts`.
+
 Create a `server/.env` file for the API:
 
 ```

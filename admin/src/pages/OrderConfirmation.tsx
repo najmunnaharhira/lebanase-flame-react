@@ -2,9 +2,11 @@ import { Link, useParams } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 const OrderConfirmation = () => {
   const { orderId } = useParams<{ orderId: string }>();
+  const businessName = useBusinessName();
 
   return (
     <div className="min-h-screen bg-background">
@@ -15,7 +17,7 @@ const OrderConfirmation = () => {
             Order confirmed
           </h1>
           <p className="text-muted-foreground mb-6">
-            Thanks for ordering with Lebanese Flames. We are preparing your food now.
+            Thanks for ordering with {businessName}. We are preparing your food now.
           </p>
           <div className="bg-muted rounded-xl p-4 text-sm text-muted-foreground mb-6">
             Order reference: <span className="font-semibold text-foreground">{orderId}</span>

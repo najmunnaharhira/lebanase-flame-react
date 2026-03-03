@@ -4,6 +4,7 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/api";
+import { useBusinessName } from "@/hooks/useBusinessName";
 import { OrderRecord } from "@/types/order";
 
 const STATUS_STEPS = [
@@ -31,6 +32,7 @@ const OrderTracking = () => {
   const { orderId } = useParams<{ orderId: string }>();
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [error, setError] = useState("");
+  const businessName = useBusinessName();
 
   const currentStep = useMemo(() => {
     if (!order) return 0;
@@ -73,7 +75,7 @@ const OrderTracking = () => {
             Track your order
           </h1>
           <p className="text-sm text-muted-foreground mb-6">
-            Live status updates for your Lebanese Flames order.
+            Live status updates for your {businessName} order.
           </p>
 
           {error && <p className="text-sm text-destructive mb-4">{error}</p>}

@@ -3,23 +3,25 @@ import { Link } from "react-router-dom";
 import { Clock, Star, Store } from "lucide-react";
 import heroImage from "@/assets/hero-food.jpg";
 import { DeliveryToggle } from "@/components/DeliveryToggle";
-
-const stores = [
-  {
-    id: "eltham-se9",
-    name: "Lebanese Flames - Eltham (SE9)",
-    address: "381 Footscray Road, New Eltham, London SE9 2DR",
-  },
-];
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 export const Hero = () => {
+  const businessName = useBusinessName();
+  const stores = [
+    {
+      id: "eltham-se9",
+      name: `${businessName} - Eltham (SE9)`,
+      address: "381 Footscray Road, New Eltham, London SE9 2DR",
+    },
+  ];
+
   return (
     <section className="relative overflow-hidden">
       {/* Background Image */}
       <div className="absolute inset-0">
         <img
           src={heroImage}
-          alt="Lebanese mezze spread"
+          alt={`${businessName} mezze spread`}
           className="w-full h-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-charcoal/90 via-charcoal/70 to-charcoal/50" />

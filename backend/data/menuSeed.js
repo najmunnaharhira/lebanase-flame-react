@@ -50,6 +50,31 @@ const sideChoice = {
   ],
 };
 
+const sideUpgrades = {
+  id: "side-upgrades",
+  name: "Side Upgrades",
+  maxSelections: 1,
+  options: [
+    { id: "no-side", name: "No side upgrade", price: 0 },
+    { id: "regular-fries", name: "Regular Fries", price: 2.95 },
+    { id: "spicy-fries", name: "Spicy Fries", price: 3.25 },
+    { id: "rice", name: "Rice", price: 3.5 },
+    { id: "spicy-rice", name: "Spicy Rice", price: 3.75 },
+  ],
+};
+
+const drinkUpgrades = {
+  id: "drink-upgrades",
+  name: "Drink Upgrades",
+  maxSelections: 1,
+  options: [
+    { id: "no-drink", name: "No drink upgrade", price: 0 },
+    { id: "can-drink", name: "Coca-Cola / Fanta / Sprite", price: 2.45 },
+    { id: "ayran", name: "Ayran", price: 2.75 },
+    { id: "water", name: "Still / Sparkling Water", price: 1.95 },
+  ],
+};
+
 const menuItems = [
   // Cold Starters
   {
@@ -576,14 +601,14 @@ const menuItems = [
     isPopular: true,
   },
   {
-    name: "Hand Crafted Dip - Garlic",
+    name: "Garlic",
     description: "Hand crafted dip.",
     price: 0.9,
     category: "hand-crafted-dips",
     isVegetarian: true,
   },
   {
-    name: "Hand Crafted Dip - Chilli",
+    name: "Chilli",
     description: "Hand crafted dip.",
     price: 0.9,
     category: "hand-crafted-dips",
@@ -592,14 +617,14 @@ const menuItems = [
     isSpicy: true,
   },
   {
-    name: "Hand Crafted Dip - Honey Bang",
+    name: "Honey Bang",
     description: "Hand crafted dip.",
     price: 0.9,
     category: "hand-crafted-dips",
     isVegetarian: true,
   },
   {
-    name: "Hand Crafted Dip - Sesame",
+    name: "Sesame",
     description: "Hand crafted dip.",
     price: 0.9,
     category: "hand-crafted-dips",
@@ -629,6 +654,8 @@ const menuItems = [
       },
       spiceLevelCustomization,
       sauceCustomization,
+      sideUpgrades,
+      drinkUpgrades,
     ],
   },
   {
@@ -660,6 +687,8 @@ const menuItems = [
         ],
       },
       sauceCustomization,
+      sideUpgrades,
+      drinkUpgrades,
     ],
   },
   {
@@ -680,6 +709,8 @@ const menuItems = [
       },
       sideChoice,
       sauceCustomization,
+      sideUpgrades,
+      drinkUpgrades,
     ],
   },
   {
@@ -704,6 +735,8 @@ const menuItems = [
         ],
       },
       sauceCustomization,
+      sideUpgrades,
+      drinkUpgrades,
     ],
   },
   {
@@ -723,6 +756,8 @@ const menuItems = [
         ],
       },
       sauceCustomization,
+      sideUpgrades,
+      drinkUpgrades,
     ],
   },
   {
@@ -742,45 +777,8 @@ const menuItems = [
           { id: "lamb", name: "Lamb Shawarma", price: 1 },
         ],
       },
-    ],
-  },
-  {
-    name: "Side Upgrades",
-    description: "Add side upgrades to any lunch deal.",
-    price: 0,
-    category: "lunch-deals",
-    customizations: [
-      {
-        id: "side-upgrade",
-        name: "Choose Side Upgrade",
-        maxSelections: 1,
-        options: [
-          { id: "regular-fries", name: "Regular Fries", price: 2.95 },
-          { id: "spicy-fries", name: "Spicy Fries", price: 3.25 },
-          { id: "rice", name: "Rice", price: 3.5 },
-          { id: "spicy-rice", name: "Spicy Rice", price: 3.75 },
-        ],
-      },
-    ],
-  },
-  {
-    name: "Drink Upgrades",
-    description: "Add drink upgrades to any lunch deal.",
-    price: 0,
-    category: "lunch-deals",
-    customizations: [
-      {
-        id: "drink-upgrade",
-        name: "Choose Drink Upgrade",
-        maxSelections: 1,
-        options: [
-          { id: "coca-cola", name: "Coca-Cola", price: 2.45 },
-          { id: "fanta", name: "Fanta", price: 2.45 },
-          { id: "sprite", name: "Sprite", price: 2.45 },
-          { id: "ayran", name: "Ayran", price: 2.75 },
-          { id: "water", name: "Still / Sparkling Water", price: 1.95 },
-        ],
-      },
+      sideUpgrades,
+      drinkUpgrades,
     ],
   },
 ];

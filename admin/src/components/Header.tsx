@@ -6,6 +6,8 @@ import { Link, useLocation } from "react-router-dom";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import logo from "@/assets/logo.png";
+import { useEffect } from "react";
+import { DEFAULT_BUSINESS_NAME, fetchBusinessBranding } from "@/lib/api";
 
 const navLinks = [
   { name: "Home", path: "/" },
@@ -16,11 +18,45 @@ const navLinks = [
 
 export const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [logoSrc, setLogoSrc] = useState(logo);
+  const [businessName, setBusinessName] = useState(DEFAULT_BUSINESS_NAME);
   const location = useLocation();
   const { orderCount, hasReward } = useCart();
   const { user } = useAuth();
   
   const ordersToReward = 5 - orderCount;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const logoCacheKey = "lf_logo_admin";
+    const nameCacheKey = "lf_name_admin";
+
+    const cachedLogo = sessionStorage.getItem(logoCacheKey);
+    if (cachedLogo) {
+      setLogoSrc(cachedLogo);
+    }
+
+    const cachedName = sessionStorage.getItem(nameCacheKey);
+    if (cachedName) {
+      setBusinessName(cachedName);
+    }
+
+    const loadBranding = async () => {
+      try {
+        const branding = await fetchBusinessBranding(controller.signal);
+        if (branding.logoUrl) {
+          setLogoSrc(branding.logoUrl);
+          sessionStorage.setItem(logoCacheKey, branding.logoUrl);
+        }
+        setBusinessName(branding.businessName || DEFAULT_BUSINESS_NAME);
+        sessionStorage.setItem(nameCacheKey, branding.businessName || DEFAULT_BUSINESS_NAME);
+      } catch {
+      }
+    };
+
+    loadBranding();
+    return () => controller.abort();
+  }, []);
 
   return (
     <header className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border">
@@ -56,9 +92,10 @@ export const Header = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center">
             <img 
-              src={logo} 
-              alt="Lebanese Flames" 
+              src={logoSrc}
+              alt={businessName}
               className="h-14 md:h-16 w-auto"
+              onError={() => setLogoSrc(logo)}
             />
           </Link>
 

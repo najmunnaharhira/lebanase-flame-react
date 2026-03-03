@@ -2,8 +2,11 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { AboutChef } from "@/components/AboutChef";
 import { Award, Users, Clock, Heart } from "lucide-react";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 const About = () => {
+  const businessName = useBusinessName();
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -72,12 +75,12 @@ const About = () => {
         <div className="container">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="font-display text-3xl font-bold text-foreground mb-6">
-              Why Lebanese Flames?
+              Why {businessName}?
             </h2>
             <div className="prose prose-lg max-w-none text-muted-foreground font-body">
               <p className="mb-4">
                 When we opened our doors in Eltham, we had one simple mission: to share the 
-                incredible flavours of Lebanon with our local community. The name "Flames" 
+                incredible flavours of Lebanon with our local community. {businessName} 
                 represents the passion that goes into every dish – from the char-grilled 
                 perfection of our kebabs to the warm hospitality we extend to every customer.
               </p>

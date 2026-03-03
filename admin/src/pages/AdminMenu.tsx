@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { GripVertical } from "lucide-react";
 import { AdminHeader } from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,6 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
+import {
+  CATEGORY_ICON_OPTIONS,
+  DEFAULT_CATEGORY_ICON,
+  renderCategoryIcon,
+} from "@/lib/categoryIcons";
 import { demoCategories, demoMenuItems } from "@/lib/adminDemoData";
 import { API_BASE_URL } from "@/lib/api";
 import { Category, MenuItem } from "@/types/menu";
@@ -39,9 +45,10 @@ const AdminMenu = () => {
   const [editImagePreview, setEditImagePreview] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryName, setCategoryName] = useState("");
-  const [categoryIcon, setCategoryIcon] = useState("");
+  const [categoryIcon, setCategoryIcon] = useState(DEFAULT_CATEGORY_ICON);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryDraft, setEditingCategoryDraft] = useState<Partial<Category>>({});
+  const [draggingCategoryId, setDraggingCategoryId] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
 
   const normalizeImageUrl = (value: string) => {
@@ -117,11 +124,25 @@ const AdminMenu = () => {
           categoryResponse.json(),
         ]);
         setMenuItems(menuData);
-        setCategories(categoryData);
+        setCategories(
+          categoryData.map((entry: Category, index: number) => ({
+            ...entry,
+            sortOrder: Number.isFinite(Number(entry.sortOrder))
+              ? Number(entry.sortOrder)
+              : index + 1,
+          }))
+        );
         setIsDemoMode(false);
       } catch (error) {
         setMenuItems(demoMenuItems as MenuItem[]);
-        setCategories(demoCategories as Category[]);
+        setCategories(
+          (demoCategories as Category[]).map((entry, index) => ({
+            ...entry,
+            sortOrder: Number.isFinite(Number(entry.sortOrder))
+              ? Number(entry.sortOrder)
+              : index + 1,
+          }))
+        );
         setIsDemoMode(true);
         setMessage("API unavailable. Showing demo menu data.");
       } finally {
@@ -144,16 +165,90 @@ const AdminMenu = () => {
     );
   }, [menuItems, search]);
 
+  const sortedCategories = useMemo(
+    () =>
+      [...categories].sort((first, second) => {
+        const firstOrder = Number.isFinite(Number(first.sortOrder)) ? Number(first.sortOrder) : Number.MAX_SAFE_INTEGER;
+        const secondOrder = Number.isFinite(Number(second.sortOrder)) ? Number(second.sortOrder) : Number.MAX_SAFE_INTEGER;
+
+        if (firstOrder === secondOrder) {
+          return first.name.localeCompare(second.name);
+        }
+
+        return firstOrder - secondOrder;
+      }),
+    [categories]
+  );
+
+  const handleCategoryDrop = async (targetCategoryId: string) => {
+    if (!draggingCategoryId || draggingCategoryId === targetCategoryId) {
+      setDraggingCategoryId(null);
+      return;
+    }
+
+    const fromIndex = sortedCategories.findIndex((entry) => entry.id === draggingCategoryId);
+    const toIndex = sortedCategories.findIndex((entry) => entry.id === targetCategoryId);
+
+    if (fromIndex < 0 || toIndex < 0) {
+      setDraggingCategoryId(null);
+      return;
+    }
+
+    const reordered = [...sortedCategories];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    const withSortOrder = reordered.map((entry, index) => ({
+      ...entry,
+      sortOrder: index + 1,
+    }));
+
+    setCategories(withSortOrder);
+    setDraggingCategoryId(null);
+
+    if (isDemoMode) {
+      setMessage("Demo mode: category order updated locally.");
+      return;
+    }
+
+    try {
+      await Promise.all(
+        withSortOrder.map((entry) =>
+          fetch(`${API_BASE_URL}/categories/${entry.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...getAdminAuthHeaders(),
+            },
+            body: JSON.stringify({ sortOrder: entry.sortOrder }),
+          }).then(async (response) => {
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(errorText || "Failed to save category order");
+            }
+          })
+        )
+      );
+      setMessage("Category order saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save category order");
+    }
+  };
+
   const handleEditItem = (item: MenuItem) => {
     setEditingId(item.id);
     setEditImageFile(null);
     setEditDraft({
       name: item.name,
+      description: item.description,
       price: item.price,
       category: item.category,
       image: item.image,
       isAvailable: item.isAvailable,
       isPopular: item.isPopular,
+      isVegetarian: item.isVegetarian,
+      isVegan: item.isVegan,
+      isSpicy: item.isSpicy,
     });
   };
 
@@ -178,6 +273,17 @@ const AdminMenu = () => {
     }
 
     try {
+      if (!editDraft.name?.trim() || !editDraft.category?.trim()) {
+        setMessage("Name and category are required.");
+        return;
+      }
+
+      const nextPrice = Number(editDraft.price);
+      if (!Number.isFinite(nextPrice) || nextPrice < 0) {
+        setMessage("Price must be a valid number.");
+        return;
+      }
+
       let image = normalizeImageUrl(editDraft.image || "");
 
       if (editImageFile) {
@@ -200,6 +306,10 @@ const AdminMenu = () => {
 
       const payload = {
         ...editDraft,
+        name: editDraft.name?.trim(),
+        description: (editDraft.description || "").trim(),
+        category: editDraft.category?.trim(),
+        price: nextPrice,
         image,
       };
 
@@ -220,6 +330,7 @@ const AdminMenu = () => {
       setEditingId(null);
       setEditImageFile(null);
       setEditDraft({});
+      setMessage("Menu item updated successfully.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to update item");
     }
@@ -282,20 +393,29 @@ const AdminMenu = () => {
     }
     if (isDemoMode) {
       const id = categoryName.trim().toLowerCase().replaceAll(/\s+/g, "-");
+      const nextSortOrder = categories.reduce(
+        (maxValue, entry) => Math.max(maxValue, Number(entry.sortOrder || 0)),
+        0
+      ) + 1;
       setCategories((prev) => [
         ...prev,
         {
           id: id || `category-${Date.now()}`,
           name: categoryName.trim(),
-          icon: categoryIcon.trim() || "🍽️",
+          icon: categoryIcon.trim() || DEFAULT_CATEGORY_ICON,
+          sortOrder: nextSortOrder,
         },
       ]);
       setCategoryName("");
-      setCategoryIcon("");
+      setCategoryIcon(DEFAULT_CATEGORY_ICON);
       setMessage("Demo mode: category created locally.");
       return;
     }
     try {
+      const nextSortOrder = categories.reduce(
+        (maxValue, entry) => Math.max(maxValue, Number(entry.sortOrder || 0)),
+        0
+      ) + 1;
       const response = await fetch(`${API_BASE_URL}/categories`, {
         method: "POST",
         headers: {
@@ -304,8 +424,8 @@ const AdminMenu = () => {
         },
         body: JSON.stringify({
           name: categoryName.trim(),
-          icon: categoryIcon.trim() || "🍽️",
-          sortOrder: categories.length + 1,
+          icon: categoryIcon.trim() || DEFAULT_CATEGORY_ICON,
+          sortOrder: nextSortOrder,
         }),
       });
       if (!response.ok) {
@@ -315,7 +435,7 @@ const AdminMenu = () => {
       const created = await response.json();
       setCategories((prev) => [...prev, created]);
       setCategoryName("");
-      setCategoryIcon("");
+      setCategoryIcon(DEFAULT_CATEGORY_ICON);
       setMessage("Category created successfully.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to create category");
@@ -479,6 +599,9 @@ const AdminMenu = () => {
         throw new Error(errorText || "Failed to create menu item");
       }
 
+      const created = await response.json();
+      setMenuItems((prev) => [created, ...prev]);
+
       setMessage("Menu item created successfully.");
       setName("");
       setDescription("");
@@ -515,6 +638,9 @@ const AdminMenu = () => {
               <p className="text-sm text-muted-foreground">
                 Create, edit, and safely delete categories.
               </p>
+              <p className="text-xs text-muted-foreground">
+                Drag categories by the handle to reorder. Order is saved automatically.
+              </p>
             </div>
 
             <form onSubmit={handleCreateCategory} className="grid gap-3 md:grid-cols-4">
@@ -524,11 +650,18 @@ const AdminMenu = () => {
                 onChange={(event) => setCategoryName(event.target.value)}
                 required
               />
-              <Input
-                placeholder="Icon (optional)"
+              <select
+                aria-label="Category icon"
                 value={categoryIcon}
                 onChange={(event) => setCategoryIcon(event.target.value)}
-              />
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {CATEGORY_ICON_OPTIONS.map((iconOption) => (
+                  <option key={iconOption.value} value={iconOption.value}>
+                    {iconOption.label}
+                  </option>
+                ))}
+              </select>
               <div className="md:col-span-2">
                 <Button type="submit" variant="flame">Create category</Button>
               </div>
@@ -538,8 +671,16 @@ const AdminMenu = () => {
               {categories.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No categories found.</p>
               ) : (
-                categories.map((entry) => (
-                  <div key={entry.id} className="rounded-xl border border-border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                sortedCategories.map((entry) => (
+                  <div
+                    key={entry.id}
+                    draggable={editingCategoryId !== entry.id}
+                    onDragStart={() => setDraggingCategoryId(entry.id)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => handleCategoryDrop(entry.id)}
+                    onDragEnd={() => setDraggingCategoryId(null)}
+                    className={`rounded-xl border border-border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${draggingCategoryId === entry.id ? "opacity-60" : ""}`}
+                  >
                     {editingCategoryId === entry.id ? (
                       <div className="flex flex-1 flex-col gap-2 md:flex-row">
                         <Input
@@ -549,18 +690,29 @@ const AdminMenu = () => {
                           }
                           placeholder="Category name"
                         />
-                        <Input
-                          value={editingCategoryDraft.icon || ""}
+                        <select
+                          aria-label="Edit category icon"
+                          value={editingCategoryDraft.icon || DEFAULT_CATEGORY_ICON}
                           onChange={(event) =>
                             setEditingCategoryDraft((prev) => ({ ...prev, icon: event.target.value }))
                           }
-                          placeholder="Icon"
-                        />
+                          className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          {CATEGORY_ICON_OPTIONS.map((iconOption) => (
+                            <option key={iconOption.value} value={iconOption.value}>
+                              {iconOption.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     ) : (
-                      <div>
-                        <p className="font-medium text-foreground">{entry.icon} {entry.name}</p>
-                        <p className="text-xs text-muted-foreground">{entry.id}</p>
+                      <div className="space-y-1">
+                        <p className="font-medium text-foreground flex items-center gap-2">
+                          <GripVertical className="h-4 w-4 text-muted-foreground" />
+                          {renderCategoryIcon(entry.icon, "h-4 w-4")}
+                          {entry.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{entry.id} · Order {entry.sortOrder ?? "-"}</p>
                       </div>
                     )}
                     <div className="flex gap-2">
@@ -589,7 +741,10 @@ const AdminMenu = () => {
                             type="button"
                             onClick={() => {
                               setEditingCategoryId(entry.id);
-                              setEditingCategoryDraft({ name: entry.name, icon: entry.icon });
+                              setEditingCategoryDraft({
+                                name: entry.name,
+                                icon: entry.icon || DEFAULT_CATEGORY_ICON,
+                              });
                             }}
                           >
                             Edit
@@ -663,7 +818,7 @@ const AdminMenu = () => {
                   required
                 >
                   <option value="">Select category</option>
-                  {categories.map((entry) => (
+                  {sortedCategories.map((entry) => (
                     <option key={entry.id} value={entry.id}>
                       {entry.name}
                     </option>
@@ -814,6 +969,14 @@ const AdminMenu = () => {
                         onChange={(event) => setEditDraft((prev) => ({ ...prev, name: event.target.value }))}
                         placeholder="Item name"
                       />
+                      <Textarea
+                        value={editDraft.description || ""}
+                        onChange={(event) =>
+                          setEditDraft((prev) => ({ ...prev, description: event.target.value }))
+                        }
+                        placeholder="Description"
+                        className="md:col-span-2"
+                      />
                       <select
                         aria-label="Edit item category"
                         value={editDraft.category || ""}
@@ -821,7 +984,7 @@ const AdminMenu = () => {
                         className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                       >
                         <option value="">Select category</option>
-                        {categories.map((entry) => (
+                        {sortedCategories.map((entry) => (
                           <option key={entry.id} value={entry.id}>
                             {entry.name}
                           </option>
@@ -865,11 +1028,21 @@ const AdminMenu = () => {
                       )}
                       <Input
                         type="number"
+                        min="0"
                         step="0.01"
                         value={editDraft.price ?? ""}
                         onChange={(event) => setEditDraft((prev) => ({ ...prev, price: Number(event.target.value) }))}
                         placeholder="Price"
                       />
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <Checkbox
+                          checked={Boolean(editDraft.isAvailable)}
+                          onCheckedChange={(value) =>
+                            setEditDraft((prev) => ({ ...prev, isAvailable: Boolean(value) }))
+                          }
+                        />
+                        Available
+                      </label>
                       <label className="flex items-center gap-2 text-sm text-foreground">
                         <Checkbox
                           checked={Boolean(editDraft.isPopular)}
@@ -878,6 +1051,33 @@ const AdminMenu = () => {
                           }
                         />
                         Popular
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <Checkbox
+                          checked={Boolean(editDraft.isVegetarian)}
+                          onCheckedChange={(value) =>
+                            setEditDraft((prev) => ({ ...prev, isVegetarian: Boolean(value) }))
+                          }
+                        />
+                        Vegetarian
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <Checkbox
+                          checked={Boolean(editDraft.isVegan)}
+                          onCheckedChange={(value) =>
+                            setEditDraft((prev) => ({ ...prev, isVegan: Boolean(value) }))
+                          }
+                        />
+                        Vegan
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-foreground">
+                        <Checkbox
+                          checked={Boolean(editDraft.isSpicy)}
+                          onCheckedChange={(value) =>
+                            setEditDraft((prev) => ({ ...prev, isSpicy: Boolean(value) }))
+                          }
+                        />
+                        Spicy
                       </label>
                       <div className="flex gap-2">
                         <Button size="sm" variant="flame" onClick={() => handleUpdateItem(item.id)}>

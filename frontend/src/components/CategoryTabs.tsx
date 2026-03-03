@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { renderCategoryIcon } from "@/lib/categoryIcons";
 import { Category } from "@/types/menu";
 
 interface CategoryTabsProps {
@@ -35,7 +36,7 @@ export const CategoryTabs = ({ activeCategory, onCategoryChange, categories }: C
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               )}
             >
-              <span>{category.icon}</span>
+              <span>{renderCategoryIcon(category.icon)}</span>
               <span>{category.name}</span>
             </button>
           ))}

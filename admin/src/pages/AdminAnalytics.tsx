@@ -28,6 +28,7 @@ interface AnalyticsResponse {
   dailyOrders: { date: string; count: number; revenue: number }[];
   peakWindow: { label: string; orders: number; revenue: number };
   promoPerformance?: { code: string; orders: number; revenue: number; discount: number }[];
+  cashbackSummary?: { today: number; week: number; month: number };
 }
 
 const AdminAnalytics = () => {
@@ -203,6 +204,32 @@ const AdminAnalytics = () => {
                 <p className="text-sm text-muted-foreground">Peak window (6–9 PM)</p>
                 <p className="text-2xl font-semibold text-foreground">{data.peakWindow.orders} orders</p>
                 <p className="text-sm text-muted-foreground">£{data.peakWindow.revenue.toFixed(2)} revenue</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+              <h2 className="font-display text-lg font-semibold text-foreground mb-4">
+                Cashback summary
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">Today</p>
+                  <p className="text-2xl font-semibold text-foreground">
+                    £{Number(data.cashbackSummary?.today || 0).toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Last 7 days</p>
+                  <p className="text-2xl font-semibold text-foreground">
+                    £{Number(data.cashbackSummary?.week || 0).toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Last 30 days</p>
+                  <p className="text-2xl font-semibold text-foreground">
+                    £{Number(data.cashbackSummary?.month || 0).toFixed(2)}
+                  </p>
+                </div>
               </div>
             </div>
 

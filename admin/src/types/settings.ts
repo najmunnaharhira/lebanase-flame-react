@@ -10,7 +10,50 @@ export interface HolidayClosure {
   note: string;
 }
 
+export interface PaymentSettings {
+  stripePublishableKey: string;
+  stripeSecretKey: string;
+  stripeWebhookSecret: string;
+  cloverEnabled: boolean;
+  cloverAccessToken: string;
+  cloverPrivateKey: string;
+  cloverMerchantId: string;
+  cloverApiBaseUrl: string;
+  cloverDefaultCurrency: string;
+}
+
+export interface AboutChefSettings {
+  sectionTitle: string;
+  chefName: string;
+  bio: string;
+  imageUrl: string;
+  experienceText: string;
+}
+
+export interface ContactInfoSettings {
+  phone: string;
+  email: string;
+  address: string;
+  whatsapp: string;
+}
+
+export interface OfferPopupSettings {
+  enabled: boolean;
+  title: string;
+  description: string;
+  promoCode: string;
+  ctaText: string;
+  ctaLink: string;
+  cashbackAmount: number;
+}
+
 export interface BusinessSettings {
+  businessName?: string;
+  logoUrl?: string;
   openingHours: OpeningHour[];
   holidayClosures: HolidayClosure[];
+  paymentSettings: PaymentSettings;
+  aboutChef: AboutChefSettings;
+  contactInfo: ContactInfoSettings;
+  offerPopup: OfferPopupSettings;
 }

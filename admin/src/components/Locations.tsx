@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { MapPin, Phone } from "lucide-react";
+import { useBusinessName } from "@/hooks/useBusinessName";
 
 export const Locations = () => {
+  const businessName = useBusinessName();
+
   return (
     <section className="py-12 md:py-16 bg-muted">
       <div className="container">
@@ -11,7 +14,7 @@ export const Locations = () => {
               Locations
             </span>
             <h2 className="font-display text-3xl font-bold text-foreground mt-2 mb-4">
-              Visit Lebanese Flames
+              Visit {businessName}
             </h2>
             <div className="space-y-4 text-muted-foreground">
               <div className="flex items-start gap-3">
@@ -44,7 +47,7 @@ export const Locations = () => {
 
           <div className="rounded-2xl overflow-hidden shadow-card">
             <iframe
-              title="Lebanese Flames location"
+              title={`${businessName} location`}
               src="https://maps.google.com/maps?q=381%20Footscray%20Road,%20New%20Eltham,%20London%20SE9%202DR&t=&z=13&ie=UTF8&iwloc=&output=embed"
               className="w-full h-[320px] md:h-[400px] border-0"
               loading="lazy"
