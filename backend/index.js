@@ -1608,6 +1608,8 @@ const buildInvoiceNumber = () => {
 };
 
 const cloverAccessToken = process.env.CLOVER_ACCESS_TOKEN;
+const cloverPrivateKey = process.env.CLOVER_PRIVATE_KEY;
+const cloverMerchantId = process.env.CLOVER_MERCHANT_ID;
 const cloverApiBaseUrl =
   process.env.CLOVER_API_BASE_URL || "https://scl-sandbox.dev.clover.com";
 const cloverDefaultCurrency = (
@@ -2397,6 +2399,112 @@ app.post("/payments/clover/charge", async (req, res) => {
     return res
       .status(500)
       .json({ message: "Failed to process Clover payment" });
+  }
+});
+
+app.post("/payments/clover/hosted-checkout", async (req, res) => {
+  try {
+    if (!cloverPrivateKey || !cloverMerchantId) {
+      return res
+        .status(500)
+        .json({ message: "Clover hosted checkout is not configured on the server" });
+    }
+
+    const { items, email, total, returnUrl } = req.body || {};
+
+    if (!items?.length || !Number.isFinite(Number(total)) || Number(total) <= 0) {
+      return res.status(400).json({ message: "Invalid order items or total" });
+    }
+
+    const safeReturnUrl =
+      typeof returnUrl === "string" && returnUrl.startsWith("http")
+        ? returnUrl
+        : undefined;
+
+    const lineItems = items.map((item) => {
+      const qty = Math.max(1, Number(item?.quantity) || 1);
+      return {
+        name: String(item?.name || item?.menuItem?.name || "Item"),
+        unitQty: qty,
+        price: Math.round((Number(item?.totalPrice || 0) / qty) * 100),
+      };
+    });
+
+    const checkoutBody = {
+      customer: email ? { email } : undefined,
+      shoppingCart: { lineItems },
+      redirectUrls: safeReturnUrl
+        ? { success: safeReturnUrl, failure: safeReturnUrl }
+        : undefined,
+    };
+
+    const clientIp = normalizeIp(getRequestIp(req));
+    const response = await fetch(
+      `${cloverApiBaseUrl}/invoicingcheckoutservice/v1/checkouts`,
+      {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${cloverPrivateKey}`,
+          "x-clover-merchant-id": cloverMerchantId,
+          "content-type": "application/json",
+          "x-forwarded-for": clientIp,
+        },
+        body: JSON.stringify(checkoutBody),
+      }
+    );
+
+    const text = await response.text();
+    if (!response.ok) {
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = null;
+      }
+      return res.status(400).json({
+        message: payload?.message || "Clover hosted checkout creation failed",
+      });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return res.status(500).json({ message: "Invalid response from Clover" });
+    }
+
+    const checkoutUrl = data.href;
+    const sessionId = data.checkoutSessionId;
+
+    if (!checkoutUrl || !sessionId) {
+      return res.status(500).json({ message: "Clover did not return a valid checkout session" });
+    }
+
+    await createPaymentRecord({
+      userId: null,
+      transactionId: sessionId,
+      amount: Number(total),
+      paymentMethod: "clover_hosted",
+      status: "pending",
+      metadata: { sessionId, email },
+    });
+
+    await logActivity({
+      userId: null,
+      action: "payment_clover_hosted_checkout_created",
+      entityType: "payment",
+      entityId: sessionId,
+      details: JSON.stringify({ total, email }),
+      ipAddress: clientIp,
+    });
+
+    return res.status(201).json({ checkoutUrl, sessionId });
+  } catch (error) {
+    console.error("Clover hosted checkout error:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to create Clover hosted checkout" });
   }
 });
 

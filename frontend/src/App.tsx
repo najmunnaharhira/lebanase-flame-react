@@ -2,6 +2,7 @@ import About from "./pages/About";
 import Auth from "./pages/Auth";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
+import CloverReturn from "./pages/CloverReturn";
 import Contact from "./pages/Contact";
 import Index from "./pages/Index";
 import Menu from "./pages/Menu";
@@ -34,6 +35,7 @@ const App = () => (
               <Route path="/menu" element={<Menu />} />
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />
+              <Route path="/clover-return" element={<CloverReturn />} />
               <Route path="/order-confirmation/:orderId" element={<OrderConfirmation />} />
               <Route path="/order-tracking/:orderId" element={<OrderTracking />} />
               <Route path="/auth" element={<Auth />} />
