@@ -48,7 +48,10 @@ export interface OfferPopupSettings {
 }
 
 export interface BusinessSettings {
+<<<<<<< Updated upstream
   businessName?: string;
+=======
+>>>>>>> Stashed changes
   logoUrl?: string;
   openingHours: OpeningHour[];
   holidayClosures: HolidayClosure[];

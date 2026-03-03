@@ -27,3 +27,5 @@ admin/.env
 *.njsproj
 *.sln
 *.sw?
+
+.builder/config/data.json

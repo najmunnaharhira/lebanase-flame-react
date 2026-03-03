@@ -599,9 +599,14 @@ const AdminMenu = () => {
         throw new Error(errorText || "Failed to create menu item");
       }
 
+<<<<<<< Updated upstream
       const created = await response.json();
       setMenuItems((prev) => [created, ...prev]);
 
+=======
+      const createdItem = await response.json();
+      setMenuItems((prev) => [createdItem, ...prev]);
+>>>>>>> Stashed changes
       setMessage("Menu item created successfully.");
       setName("");
       setDescription("");

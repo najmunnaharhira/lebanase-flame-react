@@ -140,7 +140,10 @@ export const demoMenuItems = [
 ];
 
 export const demoBusinessSettings: BusinessSettings = {
+<<<<<<< Updated upstream
   businessName: "Lebanese Flames",
+=======
+>>>>>>> Stashed changes
   logoUrl: "",
   openingHours: [
     { day: "Monday", open: "12:00", close: "23:00", closed: false },

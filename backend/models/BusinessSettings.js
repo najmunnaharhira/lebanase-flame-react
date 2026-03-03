@@ -82,8 +82,6 @@ const OfferPopupSchema = new mongoose.Schema(
 
 const BusinessSettingsSchema = new mongoose.Schema(
   {
-    businessName: { type: String, default: "Lebanese Flames" },
-    logoUrl: { type: String, default: "" },
     openingHours: { type: [OpeningHourSchema], default: [] },
     holidayClosures: { type: [HolidayClosureSchema], default: [] },
     paymentSettings: { type: PaymentSettingsSchema, default: () => ({}) },

@@ -6,11 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+<<<<<<< Updated upstream
 import {
   DEFAULT_BUSINESS_NAME,
   fetchBusinessBranding,
   resolveMenuImageUrl,
 } from "@/lib/api";
+=======
+import { API_BASE_URL } from "@/lib/api";
+>>>>>>> Stashed changes
 
 const navLinks = [
   { name: "Home", path: "/" },
@@ -22,12 +26,16 @@ const navLinks = [
 export const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [logoSrc, setLogoSrc] = useState(logo);
+<<<<<<< Updated upstream
   const [businessName, setBusinessName] = useState(DEFAULT_BUSINESS_NAME);
+=======
+>>>>>>> Stashed changes
   const location = useLocation();
   const { user } = useAuth();
   const { totalItems } = useCart(); // Get totalItems from CartContext (assuming this hook exists)
 
   useEffect(() => {
+<<<<<<< Updated upstream
     const controller = new AbortController();
     const logoCacheKey = "lf_logo_frontend";
     const nameCacheKey = "frontendBusinessNameCache";
@@ -52,12 +60,32 @@ export const Header = () => {
         }
         setBusinessName(branding.businessName || DEFAULT_BUSINESS_NAME);
         sessionStorage.setItem(nameCacheKey, branding.businessName || DEFAULT_BUSINESS_NAME);
+=======
+    let isMounted = true;
+
+    const loadLogo = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/settings/business`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const resolvedLogo = String(data?.logoUrl || "").trim();
+        if (isMounted && resolvedLogo) {
+          setLogoSrc(resolvedLogo);
+        }
+>>>>>>> Stashed changes
       } catch {
       }
     };
 
     loadLogo();
+<<<<<<< Updated upstream
     return () => controller.abort();
+=======
+
+    return () => {
+      isMounted = false;
+    };
+>>>>>>> Stashed changes
   }, []);
 
   return (
@@ -84,7 +112,11 @@ export const Header = () => {
           <Link to="/" className="flex items-center">
             <img 
               src={logoSrc}
+<<<<<<< Updated upstream
               alt={businessName}
+=======
+              alt="Lebanese Flames" 
+>>>>>>> Stashed changes
               className="h-14 md:h-16 w-auto"
               onError={() => setLogoSrc(logo)}
             />
