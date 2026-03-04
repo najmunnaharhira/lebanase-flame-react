@@ -44,10 +44,25 @@ if (getApps().length === 0) {
 export const auth = initialized ? getAuth() : null;
 
 export async function verifyFirebaseToken(token) {
-  if (!auth) {
-    throw new Error(
-      "Firebase Admin is not initialized. Download serviceAccountKey.json from Firebase Console."
-    );
+  if (auth) {
+    return auth.verifyIdToken(token);
   }
-  return auth.verifyIdToken(token);
+
+  const response = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`
+  );
+
+  if (!response.ok) {
+    throw new Error("Invalid Google token");
+  }
+
+  const payload = await response.json();
+  return {
+    uid: payload.sub,
+    email: payload.email,
+    email_verified:
+      payload.email_verified === true || payload.email_verified === "true",
+    name: payload.name,
+    picture: payload.picture,
+  };
 }

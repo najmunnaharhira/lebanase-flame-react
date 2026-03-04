@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 
-dotenv.config({ path: new URL("../.env", import.meta.url) });
+dotenv.config({ path: new URL("../../.env", import.meta.url) });
 
 const adminEmail = process.env.ADMIN_EMAIL || "";
 const adminPassword = process.env.ADMIN_PASSWORD || "";

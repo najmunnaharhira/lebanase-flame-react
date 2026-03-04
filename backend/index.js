@@ -9,7 +9,6 @@ import fetch from "node-fetch";
 import fs from "fs";
 import helmet from "helmet";
 import jwt from "jsonwebtoken";
-import mongoose from "mongoose";
 import multer from "multer";
 import nodemailer from "nodemailer";
 import path from "path";
@@ -20,17 +19,9 @@ import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { verifyFirebaseToken } from "./config/firebaseAdmin.js";
 import { sanitizeInput } from "./middleware/sanitizeInput.js";
-import { AbandonedCart } from "./models/AbandonedCart.js";
-import { BusinessSettings } from "./models/BusinessSettings.js";
-import { Category } from "./models/Category.js";
-import { MenuItem } from "./models/MenuItem.js";
-import { Order } from "./models/Order.js";
-import { Promotion } from "./models/Promotion.js";
-import { SupportMessage } from "./models/SupportMessage.js";
-import { UserProfile } from "./models/UserProfile.js";
 import { mysqlPool, testMySqlConnection } from "./mysql/connection.js";
 
-dotenv.config({ path: new URL("./.env", import.meta.url) });
+dotenv.config({ path: new URL("../.env", import.meta.url) });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -173,6 +164,28 @@ const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "1h";
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || "";
 
+const buildEnvAdminUser = () => ({
+  id: "env-admin",
+  name: "Administrator",
+  email: String(adminEmail || "admin@localhost")
+    .trim()
+    .toLowerCase(),
+  role: "admin",
+});
+
+const isMySqlUnavailableError = (error) => {
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    code === "ECONNREFUSED" ||
+    code === "PROTOCOL_CONNECTION_LOST" ||
+    code === "ER_ACCESS_DENIED_ERROR" ||
+    code === "ER_BAD_DB_ERROR" ||
+    message.includes("connect econnrefused") ||
+    message.includes("unknown database")
+  );
+};
+
 const getRequestIp = (req) => {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.length > 0) {
@@ -313,11 +326,6 @@ const requireAdmin = (req, res, next) => {
   return res.status(401).json({ message: "Unauthorized" });
 };
 
-const mongoUri = process.env.MONGODB_URI;
-if (!mongoUri) {
-  throw new Error("MONGODB_URI is missing in environment variables");
-}
-
 const envStripeSecretKey = process.env.STRIPE_SECRET_KEY || "";
 const envStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
 const envStripePublishableKey = process.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
@@ -359,17 +367,17 @@ app.post(
     try {
       if (event.type === "payment_intent.succeeded") {
         const intent = event.data.object;
-        await Order.findOneAndUpdate(
-          { paymentIntentId: intent.id },
-          { paymentStatus: "paid" },
+        await mysqlPool.query(
+          "UPDATE orders SET payment_status = 'paid' WHERE payment_intent_id = ?",
+          [intent.id],
         );
       }
 
       if (event.type === "payment_intent.payment_failed") {
         const intent = event.data.object;
-        await Order.findOneAndUpdate(
-          { paymentIntentId: intent.id },
-          { paymentStatus: "pending" },
+        await mysqlPool.query(
+          "UPDATE orders SET payment_status = 'pending' WHERE payment_intent_id = ?",
+          [intent.id],
         );
       }
     } catch (error) {
@@ -383,28 +391,9 @@ app.post(
 app.use(express.json());
 app.use(sanitizeInput);
 
-mongoose
-  .connect(mongoUri)
-  .then(() => console.log("MongoDB connected"))
-  .catch((error) => {
-    console.error("MongoDB connection error:", error.message || error);
-    if (error.message && error.message.includes("whitelist")) {
-      console.error(
-        "\n>>> FIX: Add your current IP to MongoDB Atlas Network Access:",
-      );
-      console.error(
-        "    1. Go to https://cloud.mongodb.com → your project → Network Access",
-      );
-      console.error("    2. Click 'Add IP Address'");
-      console.error(
-        "    3. Add your current IP, or use 0.0.0.0/0 to allow all (dev only)",
-      );
-      console.error(
-        "    https://www.mongodb.com/docs/atlas/security-whitelist/\n",
-      );
-    }
-    process.exit(1);
-  });
+testMySqlConnection().catch((error) => {
+  console.error("MySQL bootstrap check failed:", error.message || error);
+});
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
@@ -451,10 +440,91 @@ const calculateOrderTotal = (
 
 const serializeOrder = (order) => {
   const { __v, ...rest } = order;
+  const orderId =
+    typeof order._id !== "undefined" && order._id !== null
+      ? order._id.toString()
+      : typeof order.id !== "undefined" && order.id !== null
+        ? String(order.id)
+        : "";
   return {
     ...rest,
     status: normalizeOrderStatus(order.status),
-    _id: order._id?.toString(),
+    _id: orderId,
+    id: orderId,
+  };
+};
+
+const parseJsonSafe = (value, fallback) => {
+  if (value === null || typeof value === "undefined") return fallback;
+  if (typeof value === "object") return value;
+  try {
+    const parsed = JSON.parse(String(value));
+    return typeof parsed === "undefined" || parsed === null ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+};
+
+const mapOrderRowToOrderObject = (row) => {
+  const address = parseJsonSafe(row.address_json, null);
+  const items = parseJsonSafe(row.items_json, []);
+  return {
+    _id: String(row.id),
+    userId: row.user_uid || "",
+    email: row.email,
+    deliveryMode: row.delivery_mode,
+    address: row.delivery_mode === "delivery" ? address : undefined,
+    items: Array.isArray(items) ? items : [],
+    subtotal: Number(row.subtotal || 0),
+    deliveryFee: Number(row.delivery_fee || 0),
+    loyaltyDiscount: Number(row.loyalty_discount || 0),
+    cashbackEarned: Number(row.cashback_earned || 0),
+    total: Number(row.total || 0),
+    paymentMethod: row.payment_method,
+    loyaltyRewardApplied: Boolean(row.loyalty_reward_applied),
+    invoiceNumber: row.invoice_number,
+    receiptEmailSent: Boolean(row.receipt_email_sent),
+    promoCode: row.promo_code || "",
+    promoDiscount: Number(row.promo_discount || 0),
+    paymentIntentId: row.payment_intent_id || "",
+    paymentStatus: row.payment_status,
+    notes: row.notes || "",
+    status: row.status || "Order Received",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+const mapProfileRowToProfileObject = (row, uidFallback = "") => {
+  if (!row) {
+    return {
+      uid: uidFallback,
+      email: "",
+      fullName: "",
+      phone: "",
+      dateOfBirth: "",
+      preferredContact: "email",
+      addresses: [],
+      completedOrders: 0,
+      loyaltyStamps: 0,
+      loyaltyRewardAvailable: false,
+      rewardPoints: 0,
+    };
+  }
+
+  const addresses = parseJsonSafe(row.addresses, []);
+  return {
+    uid: row.uid,
+    email: row.email || "",
+    fullName: row.full_name || "",
+    phone: row.phone || "",
+    dateOfBirth: row.date_of_birth || "",
+    preferredContact: row.preferred_contact || "email",
+    addresses: Array.isArray(addresses) ? addresses : [],
+    completedOrders: Number(row.completed_orders || 0),
+    loyaltyStamps: Number(row.loyalty_stamps || 0),
+    loyaltyRewardAvailable: Boolean(row.loyalty_reward_available),
+    rewardPoints: Number(row.reward_points || 0),
   };
 };
 
@@ -542,19 +612,54 @@ const defaultOfferPopup = {
 };
 
 const getBusinessSettings = async () => {
-  let settings = await BusinessSettings.findOne().lean();
-  if (!settings) {
-    settings = await BusinessSettings.create({
-      businessName: "Lebanese Flames",
-      logoUrl: "",
-      openingHours: defaultOpeningHours,
-      holidayClosures: [],
-      paymentSettings: defaultPaymentSettings,
-      aboutChef: defaultAboutChef,
-      contactInfo: defaultContactInfo,
-      offerPopup: defaultOfferPopup,
-    });
+  const [rows] = await mysqlPool.query(
+    `SELECT id, business_name, logo_url, opening_hours, holiday_closures,
+            payment_settings, about_chef, contact_info, offer_popup
+       FROM business_settings
+      ORDER BY id ASC
+      LIMIT 1`,
+  );
+
+  let row = rows[0];
+  if (!row) {
+    const [insertResult] = await mysqlPool.query(
+      `INSERT INTO business_settings (
+         business_name, logo_url, opening_hours, holiday_closures,
+         payment_settings, about_chef, contact_info, offer_popup
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        "Lebanese Flames",
+        "",
+        JSON.stringify(defaultOpeningHours),
+        JSON.stringify([]),
+        JSON.stringify(defaultPaymentSettings),
+        JSON.stringify(defaultAboutChef),
+        JSON.stringify(defaultContactInfo),
+        JSON.stringify(defaultOfferPopup),
+      ],
+    );
+    const [freshRows] = await mysqlPool.query(
+      `SELECT id, business_name, logo_url, opening_hours, holiday_closures,
+              payment_settings, about_chef, contact_info, offer_popup
+         FROM business_settings
+        WHERE id = ?
+        LIMIT 1`,
+      [insertResult.insertId],
+    );
+    row = freshRows[0];
   }
+
+  const settings = {
+    id: row.id,
+    businessName: String(row.business_name || "").trim() || "Lebanese Flames",
+    logoUrl: String(row.logo_url || "").trim(),
+    openingHours: parseJsonSafe(row.opening_hours, defaultOpeningHours),
+    holidayClosures: parseJsonSafe(row.holiday_closures, []),
+    paymentSettings: parseJsonSafe(row.payment_settings, defaultPaymentSettings),
+    aboutChef: parseJsonSafe(row.about_chef, defaultAboutChef),
+    contactInfo: parseJsonSafe(row.contact_info, defaultContactInfo),
+    offerPopup: parseJsonSafe(row.offer_popup, defaultOfferPopup),
+  };
 
   return {
     ...settings,
@@ -1065,13 +1170,17 @@ app.get("/admin/payments/summary", requireAdmin, async (req, res) => {
 });
 
 app.post("/admin/auth/login", async (req, res) => {
-  try {
-    const { email, password } = req.body || {};
-    const normalizedEmail = String(email || "")
-      .trim()
-      .toLowerCase();
-    const normalizedPassword = String(password || "");
+  const { email, password } = req.body || {};
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+  const normalizedPassword = String(password || "");
+  const isEnvAdminCredentialMatch =
+    Boolean(adminEmail && adminPassword) &&
+    normalizedEmail === String(adminEmail).toLowerCase() &&
+    normalizedPassword === String(adminPassword);
 
+  try {
     if (!normalizedEmail || !normalizedPassword) {
       return res
         .status(400)
@@ -1085,9 +1194,7 @@ app.post("/admin/auth/login", async (req, res) => {
 
     if (
       !user &&
-      adminEmail && adminPassword &&
-      normalizedEmail === String(adminEmail).toLowerCase() &&
-      normalizedPassword === String(adminPassword)
+      isEnvAdminCredentialMatch
     ) {
       const passwordHash = await bcrypt.hash(normalizedPassword, 10);
       user = await createUser({
@@ -1103,11 +1210,7 @@ app.post("/admin/auth/login", async (req, res) => {
     }
 
     let isMatch = false;
-    if (
-      adminEmail && adminPassword &&
-      normalizedEmail === String(adminEmail).toLowerCase() &&
-      normalizedPassword === String(adminPassword)
-    ) {
+    if (isEnvAdminCredentialMatch) {
       isMatch = true;
     } else {
       isMatch = await bcrypt.compare(normalizedPassword, user.password);
@@ -1139,12 +1242,42 @@ app.post("/admin/auth/login", async (req, res) => {
       permissions: getRolePermissions(user.role),
     });
   } catch (error) {
+    if (isEnvAdminCredentialMatch && isMySqlUnavailableError(error)) {
+      const fallbackUser = buildEnvAdminUser();
+      const token = signAccessToken(fallbackUser);
+      setAuthCookie(res, token);
+      return res.json({
+        accessToken: token,
+        user: {
+          id: fallbackUser.id,
+          name: fallbackUser.name,
+          email: fallbackUser.email,
+          role: fallbackUser.role,
+          profileImage: null,
+        },
+        permissions: getRolePermissions("admin"),
+      });
+    }
     return res.status(500).json({ message: "Failed to sign in" });
   }
 });
 
 app.get("/admin/auth/me", requireStaffRole, async (req, res) => {
   try {
+    if (String(req.user?.id || "") === "env-admin") {
+      const fallbackUser = buildEnvAdminUser();
+      return res.json({
+        user: {
+          id: fallbackUser.id,
+          name: fallbackUser.name,
+          email: fallbackUser.email,
+          role: fallbackUser.role,
+          profileImage: null,
+        },
+        permissions: getRolePermissions("admin"),
+      });
+    }
+
     const user = await findUserById(req.user.id);
     if (!user || !user.is_active) {
       return res.status(401).json({ message: "Authentication required" });
@@ -1257,9 +1390,50 @@ app.post("/admin/auth/google", async (req, res) => {
       return res.status(401).json({ message: "Google account is not verified" });
     }
 
-    const user = await findUserByEmail(email);
+    const isEnvAdminEmailMatch =
+      Boolean(adminEmail) && email === String(adminEmail).toLowerCase();
+
+    let user;
+    try {
+      user = await findUserByEmail(email);
+    } catch (error) {
+      if (isEnvAdminEmailMatch && isMySqlUnavailableError(error)) {
+        const fallbackUser = buildEnvAdminUser();
+        const token = signAccessToken(fallbackUser);
+        setAuthCookie(res, token);
+        return res.json({
+          accessToken: token,
+          user: {
+            id: fallbackUser.id,
+            name: fallbackUser.name,
+            email: fallbackUser.email,
+            role: fallbackUser.role,
+            profileImage: null,
+          },
+          permissions: getRolePermissions("admin"),
+        });
+      }
+      throw error;
+    }
 
     if (!user || !user.is_active) {
+      if (isEnvAdminEmailMatch) {
+        const fallbackUser = buildEnvAdminUser();
+        const token = signAccessToken(fallbackUser);
+        setAuthCookie(res, token);
+        return res.json({
+          accessToken: token,
+          user: {
+            id: fallbackUser.id,
+            name: fallbackUser.name,
+            email: fallbackUser.email,
+            role: fallbackUser.role,
+            profileImage: null,
+          },
+          permissions: getRolePermissions("admin"),
+        });
+      }
+
       return res.status(403).json({
         message: "Account not registered for admin panel. Contact an administrator to set up your account first.",
       });
@@ -2161,10 +2335,18 @@ const buildReceiptHtml = (order) => {
 
 const resolveCustomerOrderCount = async ({ userId, email }) => {
   if (userId) {
-    return Order.countDocuments({ userId });
+    const [rows] = await mysqlPool.query(
+      "SELECT COUNT(*) AS count FROM orders WHERE user_uid = ?",
+      [String(userId)],
+    );
+    return Number(rows[0]?.count || 0);
   }
   if (email) {
-    return Order.countDocuments({ email });
+    const [rows] = await mysqlPool.query(
+      "SELECT COUNT(*) AS count FROM orders WHERE email = ?",
+      [String(email)],
+    );
+    return Number(rows[0]?.count || 0);
   }
   return 0;
 };
@@ -2174,12 +2356,35 @@ const validatePromotion = async ({ code, subtotal, userId, email }) => {
     return { isValid: false, message: "Promo code is required" };
   }
 
-  const promo = await Promotion.findOne({
-    code: code.trim().toUpperCase(),
-  }).lean();
-  if (!promo || !promo.active) {
+  const normalizedCode = code.trim().toUpperCase();
+  const [rows] = await mysqlPool.query(
+    `SELECT id, code, description, discount_type, value, min_subtotal, max_discount,
+            starts_at, ends_at, first_order_only, min_completed_orders, active
+       FROM promotions
+      WHERE code = ?
+      LIMIT 1`,
+    [normalizedCode],
+  );
+  const row = rows[0];
+
+  if (!row || !Boolean(row.active)) {
     return { isValid: false, message: "Promo code is not active" };
   }
+
+  const promo = {
+    id: Number(row.id),
+    code: String(row.code || "").trim().toUpperCase(),
+    description: String(row.description || ""),
+    discountType: String(row.discount_type || "amount"),
+    value: Number(row.value || 0),
+    minSubtotal: Number(row.min_subtotal || 0),
+    maxDiscount: Number(row.max_discount || 0),
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    firstOrderOnly: Boolean(row.first_order_only),
+    minCompletedOrders: Number(row.min_completed_orders || 0),
+    active: Boolean(row.active),
+  };
 
   const now = new Date();
   if (promo.startsAt && now < new Date(promo.startsAt)) {
@@ -2200,9 +2405,13 @@ const validatePromotion = async ({ code, subtotal, userId, email }) => {
   }
 
   if (promo.minCompletedOrders && userId) {
-    const profile = await UserProfile.findOne({ uid: userId }).lean();
-    const completedOrders = profile?.completedOrders || 0;
-    if (completedOrders < promo.minCompletedOrders) {
+    const [rows] = await mysqlPool.query(
+      "SELECT completed_orders FROM user_profiles WHERE uid = ? LIMIT 1",
+      [String(userId)],
+    );
+    const profile = rows[0] || null;
+    const normalizedCompletedOrders = Number(profile?.completed_orders || 0);
+    if (normalizedCompletedOrders < promo.minCompletedOrders) {
       return {
         isValid: false,
         message: "Promo code is only for loyal customers",
@@ -2248,14 +2457,64 @@ const sendReceiptEmail = async (order) => {
 
 app.get("/menu", async (req, res) => {
   try {
-    const { category } = req.query;
-    const filter = category
-      ? { category, isAvailable: true }
-      : { isAvailable: true };
-    const items = await MenuItem.find(filter)
-      .sort({ category: 1, name: 1 })
-      .lean();
-    res.json(items.map(serializeMenuItem));
+    const category = typeof req.query?.category === "string" ? req.query.category.trim() : "";
+    const whereParts = ["is_available = 1"];
+    const params = [];
+
+    if (category) {
+      whereParts.push("category = ?");
+      params.push(category);
+    }
+
+    const [rows] = await mysqlPool.query(
+      `SELECT id, name, description, price, category, image,
+              is_available, is_popular, is_vegetarian, is_vegan, is_spicy,
+              customizations, add_ons, created_at, updated_at
+         FROM menu_items
+        WHERE ${whereParts.join(" AND ")}
+        ORDER BY category ASC, name ASC`,
+      params,
+    );
+
+    const items = rows.map((row) =>
+      serializeMenuItem({
+        id: String(row.id),
+        name: row.name,
+        description: row.description || "",
+        price: Number(row.price || 0),
+        category: row.category,
+        image: row.image || null,
+        isAvailable: Boolean(row.is_available),
+        isPopular: Boolean(row.is_popular),
+        isVegetarian: Boolean(row.is_vegetarian),
+        isVegan: Boolean(row.is_vegan),
+        isSpicy: Boolean(row.is_spicy),
+        customizations: Array.isArray(row.customizations)
+          ? row.customizations
+          : (() => {
+              try {
+                const parsed = JSON.parse(String(row.customizations || "[]"));
+                return Array.isArray(parsed) ? parsed : [];
+              } catch {
+                return [];
+              }
+            })(),
+        addOns: Array.isArray(row.add_ons)
+          ? row.add_ons
+          : (() => {
+              try {
+                const parsed = JSON.parse(String(row.add_ons || "[]"));
+                return Array.isArray(parsed) ? parsed : [];
+              } catch {
+                return [];
+              }
+            })(),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }),
+    );
+
+    res.json(items);
   } catch (error) {
     res.status(500).json({ message: "Failed to load menu items" });
   }
@@ -2263,10 +2522,24 @@ app.get("/menu", async (req, res) => {
 
 app.get("/categories", async (_req, res) => {
   try {
-    const categories = await Category.find({ isActive: true })
-      .sort({ sortOrder: 1, name: 1 })
-      .lean();
-    res.json(categories.map(serializeCategory));
+    const [rows] = await mysqlPool.query(
+      `SELECT id, name, slug, icon, sort_order, is_active
+         FROM categories
+        WHERE is_active = 1
+        ORDER BY sort_order ASC, name ASC`,
+    );
+    res.json(
+      rows.map((row) =>
+        serializeCategory({
+          _id: String(row.id),
+          name: row.name,
+          slug: row.slug,
+          icon: row.icon,
+          sortOrder: Number(row.sort_order || 0),
+          isActive: Boolean(row.is_active),
+        }),
+      ),
+    );
   } catch (error) {
     res.status(500).json({ message: "Failed to load categories" });
   }
@@ -2274,10 +2547,23 @@ app.get("/categories", async (_req, res) => {
 
 app.get("/categories/all", requireStaffRole, async (_req, res) => {
   try {
-    const categories = await Category.find({})
-      .sort({ sortOrder: 1, name: 1 })
-      .lean();
-    res.json(categories.map(serializeCategory));
+    const [rows] = await mysqlPool.query(
+      `SELECT id, name, slug, icon, sort_order, is_active
+         FROM categories
+        ORDER BY sort_order ASC, name ASC`,
+    );
+    res.json(
+      rows.map((row) =>
+        serializeCategory({
+          _id: String(row.id),
+          name: row.name,
+          slug: row.slug,
+          icon: row.icon,
+          sortOrder: Number(row.sort_order || 0),
+          isActive: Boolean(row.is_active),
+        }),
+      ),
+    );
   } catch (error) {
     res.status(500).json({ message: "Failed to load categories" });
   }
@@ -2297,20 +2583,41 @@ app.post("/categories", requireStaffRole, async (req, res) => {
       return res.status(400).json({ message: "Category name is required" });
     }
 
-    const existing = await Category.findOne({ slug }).lean();
-    if (existing) {
+    const [existingRows] = await mysqlPool.query(
+      "SELECT id FROM categories WHERE slug = ? LIMIT 1",
+      [slug],
+    );
+    if (existingRows.length > 0) {
       return res.status(409).json({ message: "Category slug already exists" });
     }
 
-    const category = await Category.create({
-      name,
-      slug,
-      icon,
-      sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
-      isActive: req.body?.isActive !== false,
-    });
+    const [result] = await mysqlPool.query(
+      `INSERT INTO categories (name, slug, icon, sort_order, is_active)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        name,
+        slug,
+        icon || "🍽️",
+        Number.isFinite(sortOrder) ? sortOrder : 0,
+        req.body?.isActive !== false ? 1 : 0,
+      ],
+    );
 
-    res.status(201).json(serializeCategory(category.toObject()));
+    const [rows] = await mysqlPool.query(
+      "SELECT id, name, slug, icon, sort_order, is_active FROM categories WHERE id = ? LIMIT 1",
+      [result.insertId],
+    );
+
+    res.status(201).json(
+      serializeCategory({
+        _id: String(rows[0].id),
+        name: rows[0].name,
+        slug: rows[0].slug,
+        icon: rows[0].icon,
+        sortOrder: Number(rows[0].sort_order || 0),
+        isActive: Boolean(rows[0].is_active),
+      }),
+    );
   } catch (error) {
     res.status(400).json({ message: "Failed to create category" });
   }
@@ -2318,51 +2625,84 @@ app.post("/categories", requireStaffRole, async (req, res) => {
 
 app.patch("/categories/:id", requireStaffRole, async (req, res) => {
   try {
-    const category = await Category.findOne({ slug: req.params.id });
+    const [foundRows] = await mysqlPool.query(
+      "SELECT id, name, slug, icon, sort_order, is_active FROM categories WHERE slug = ? LIMIT 1",
+      [req.params.id],
+    );
+    const category = foundRows[0];
     if (!category) {
       return res.status(404).json({ message: "Category not found" });
     }
 
     const oldSlug = category.slug;
-    if (typeof req.body?.name === "string")
-      category.name = req.body.name.trim();
-    if (typeof req.body?.icon === "string")
-      category.icon = req.body.icon.trim() || "🍽️";
+    const updates = {};
+
+    if (typeof req.body?.name === "string") {
+      updates.name = req.body.name.trim();
+    }
+    if (typeof req.body?.icon === "string") {
+      updates.icon = req.body.icon.trim() || "🍽️";
+    }
     if (typeof req.body?.sortOrder !== "undefined") {
       const sortOrder = Number(req.body.sortOrder);
-      category.sortOrder = Number.isFinite(sortOrder)
+      updates.sort_order = Number.isFinite(sortOrder)
         ? sortOrder
-        : category.sortOrder;
+        : category.sort_order;
     }
-    if (typeof req.body?.isActive !== "undefined")
-      category.isActive = Boolean(req.body.isActive);
+    if (typeof req.body?.isActive !== "undefined") {
+      updates.is_active = Boolean(req.body.isActive) ? 1 : 0;
+    }
+
+    let nextSlug = category.slug;
     if (typeof req.body?.slug === "string") {
-      const nextSlug = toSlug(req.body.slug || category.name);
+      nextSlug = toSlug(req.body.slug || updates.name || category.name);
       if (!nextSlug) {
         return res.status(400).json({ message: "Invalid category slug" });
       }
-      const existing = await Category.findOne({
-        slug: nextSlug,
-        _id: { $ne: category._id },
-      }).lean();
-      if (existing) {
+      const [existingRows] = await mysqlPool.query(
+        "SELECT id FROM categories WHERE slug = ? AND id <> ? LIMIT 1",
+        [nextSlug, category.id],
+      );
+      if (existingRows.length > 0) {
         return res
           .status(409)
           .json({ message: "Category slug already exists" });
       }
-      category.slug = nextSlug;
+      updates.slug = nextSlug;
     }
 
-    await category.save();
-
-    if (oldSlug !== category.slug) {
-      await MenuItem.updateMany(
-        { category: oldSlug },
-        { $set: { category: category.slug } },
+    const updateKeys = Object.keys(updates);
+    if (updateKeys.length > 0) {
+      const setClause = updateKeys.map((key) => `${key} = ?`).join(", ");
+      const values = updateKeys.map((key) => updates[key]);
+      await mysqlPool.query(
+        `UPDATE categories SET ${setClause} WHERE id = ?`,
+        [...values, category.id],
       );
     }
 
-    res.json(serializeCategory(category.toObject()));
+    if (oldSlug !== nextSlug) {
+      await mysqlPool.query(
+        "UPDATE menu_items SET category = ? WHERE category = ?",
+        [nextSlug, oldSlug],
+      );
+    }
+
+    const [rows] = await mysqlPool.query(
+      "SELECT id, name, slug, icon, sort_order, is_active FROM categories WHERE id = ? LIMIT 1",
+      [category.id],
+    );
+
+    res.json(
+      serializeCategory({
+        _id: String(rows[0].id),
+        name: rows[0].name,
+        slug: rows[0].slug,
+        icon: rows[0].icon,
+        sortOrder: Number(rows[0].sort_order || 0),
+        isActive: Boolean(rows[0].is_active),
+      }),
+    );
   } catch (error) {
     res.status(400).json({ message: "Failed to update category" });
   }
@@ -2370,14 +2710,20 @@ app.patch("/categories/:id", requireStaffRole, async (req, res) => {
 
 app.delete("/categories/:id", requireStaffRole, async (req, res) => {
   try {
-    const category = await Category.findOne({ slug: req.params.id }).lean();
+    const [categoryRows] = await mysqlPool.query(
+      "SELECT id, slug FROM categories WHERE slug = ? LIMIT 1",
+      [req.params.id],
+    );
+    const category = categoryRows[0];
     if (!category) {
       return res.status(404).json({ message: "Category not found" });
     }
 
-    const linkedCount = await MenuItem.countDocuments({
-      category: category.slug,
-    });
+    const [linkedRows] = await mysqlPool.query(
+      "SELECT COUNT(*) AS count FROM menu_items WHERE category = ?",
+      [category.slug],
+    );
+    const linkedCount = Number(linkedRows[0]?.count || 0);
     if (linkedCount > 0) {
       return res.status(409).json({
         message:
@@ -2385,7 +2731,9 @@ app.delete("/categories/:id", requireStaffRole, async (req, res) => {
       });
     }
 
-    await Category.deleteOne({ slug: req.params.id });
+    await mysqlPool.query("DELETE FROM categories WHERE slug = ?", [
+      req.params.id,
+    ]);
     return res.status(204).send();
   } catch (error) {
     res.status(400).json({ message: "Failed to delete category" });
@@ -2394,8 +2742,53 @@ app.delete("/categories/:id", requireStaffRole, async (req, res) => {
 
 app.get("/menu/all", requireStaffRole, async (_req, res) => {
   try {
-    const items = await MenuItem.find({}).sort({ category: 1, name: 1 }).lean();
-    res.json(items.map(serializeMenuItem));
+    const [rows] = await mysqlPool.query(
+      `SELECT id, name, description, price, category, image,
+              is_available, is_popular, is_vegetarian, is_vegan, is_spicy,
+              customizations, add_ons, created_at, updated_at
+         FROM menu_items
+        ORDER BY category ASC, name ASC`,
+    );
+
+    const items = rows.map((row) =>
+      serializeMenuItem({
+        id: String(row.id),
+        name: row.name,
+        description: row.description || "",
+        price: Number(row.price || 0),
+        category: row.category,
+        image: row.image || null,
+        isAvailable: Boolean(row.is_available),
+        isPopular: Boolean(row.is_popular),
+        isVegetarian: Boolean(row.is_vegetarian),
+        isVegan: Boolean(row.is_vegan),
+        isSpicy: Boolean(row.is_spicy),
+        customizations: Array.isArray(row.customizations)
+          ? row.customizations
+          : (() => {
+              try {
+                const parsed = JSON.parse(String(row.customizations || "[]"));
+                return Array.isArray(parsed) ? parsed : [];
+              } catch {
+                return [];
+              }
+            })(),
+        addOns: Array.isArray(row.add_ons)
+          ? row.add_ons
+          : (() => {
+              try {
+                const parsed = JSON.parse(String(row.add_ons || "[]"));
+                return Array.isArray(parsed) ? parsed : [];
+              } catch {
+                return [];
+              }
+            })(),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }),
+    );
+
+    res.json(items);
   } catch (error) {
     res.status(500).json({ message: "Failed to load menu items" });
   }
@@ -2408,15 +2801,97 @@ app.post("/menu", requireStaffRole, async (req, res) => {
     if (!category) {
       return res.status(400).json({ message: "Category is required" });
     }
-    const categoryExists = await Category.findOne({
-      slug: category,
-      isActive: true,
-    }).lean();
-    if (!categoryExists) {
+    const [categoryRows] = await mysqlPool.query(
+      "SELECT id FROM categories WHERE slug = ? AND is_active = 1 LIMIT 1",
+      [category],
+    );
+    if (categoryRows.length === 0) {
       return res.status(400).json({ message: "Invalid category" });
     }
-    const menuItem = await MenuItem.create(req.body);
-    res.status(201).json(menuItem.toJSON());
+
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const description =
+      typeof req.body?.description === "string" ? req.body.description : "";
+    const price = Number(req.body?.price);
+
+    if (!name) {
+      return res.status(400).json({ message: "Menu item name is required" });
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      return res.status(400).json({ message: "Valid menu item price is required" });
+    }
+
+    const customizations = Array.isArray(req.body?.customizations)
+      ? req.body.customizations
+      : [];
+    const addOns = Array.isArray(req.body?.addOns) ? req.body.addOns : [];
+
+    const [insertResult] = await mysqlPool.query(
+      `INSERT INTO menu_items (
+         name, description, price, category, image,
+         is_available, is_popular, is_vegetarian, is_vegan, is_spicy,
+         customizations, add_ons
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        name,
+        description,
+        price,
+        category,
+        typeof req.body?.image === "string" ? req.body.image : null,
+        req.body?.isAvailable === false ? 0 : 1,
+        req.body?.isPopular === true ? 1 : 0,
+        req.body?.isVegetarian === true ? 1 : 0,
+        req.body?.isVegan === true ? 1 : 0,
+        req.body?.isSpicy === true ? 1 : 0,
+        JSON.stringify(customizations),
+        JSON.stringify(addOns),
+      ],
+    );
+
+    const [rows] = await mysqlPool.query(
+      `SELECT id, name, description, price, category, image,
+              is_available, is_popular, is_vegetarian, is_vegan, is_spicy,
+              customizations, add_ons, created_at, updated_at
+         FROM menu_items
+        WHERE id = ?
+        LIMIT 1`,
+      [insertResult.insertId],
+    );
+
+    const row = rows[0];
+    return res.status(201).json(
+      serializeMenuItem({
+        id: String(row.id),
+        name: row.name,
+        description: row.description || "",
+        price: Number(row.price || 0),
+        category: row.category,
+        image: row.image || null,
+        isAvailable: Boolean(row.is_available),
+        isPopular: Boolean(row.is_popular),
+        isVegetarian: Boolean(row.is_vegetarian),
+        isVegan: Boolean(row.is_vegan),
+        isSpicy: Boolean(row.is_spicy),
+        customizations: (() => {
+          try {
+            const parsed = JSON.parse(String(row.customizations || "[]"));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+        addOns: (() => {
+          try {
+            const parsed = JSON.parse(String(row.add_ons || "[]"));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }),
+    );
   } catch (error) {
     res.status(400).json({ message: "Failed to create menu item" });
   }
@@ -2425,18 +2900,109 @@ app.post("/menu", requireStaffRole, async (req, res) => {
 app.put("/menu/:id", requireStaffRole, async (req, res) => {
   try {
     if (typeof req.body?.category === "string") {
-      const categoryExists = await Category.findOne({
-        slug: req.body.category.trim(),
-        isActive: true,
-      }).lean();
-      if (!categoryExists) {
+      const [categoryRows] = await mysqlPool.query(
+        "SELECT id FROM categories WHERE slug = ? AND is_active = 1 LIMIT 1",
+        [req.body.category.trim()],
+      );
+      if (categoryRows.length === 0) {
         return res.status(400).json({ message: "Invalid category" });
       }
     }
-    const menuItem = await MenuItem.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
-    res.json(menuItem ? menuItem.toJSON() : null);
+
+    const updates = {};
+    if (typeof req.body?.name === "string") updates.name = req.body.name.trim();
+    if (typeof req.body?.description === "string") updates.description = req.body.description;
+    if (typeof req.body?.category === "string") updates.category = req.body.category.trim();
+    if (typeof req.body?.image === "string" || req.body?.image === null)
+      updates.image = req.body.image;
+    if (typeof req.body?.price !== "undefined") {
+      const price = Number(req.body.price);
+      if (!Number.isFinite(price) || price < 0) {
+        return res.status(400).json({ message: "Invalid price" });
+      }
+      updates.price = price;
+    }
+    if (typeof req.body?.isAvailable !== "undefined")
+      updates.is_available = Boolean(req.body.isAvailable) ? 1 : 0;
+    if (typeof req.body?.isPopular !== "undefined")
+      updates.is_popular = Boolean(req.body.isPopular) ? 1 : 0;
+    if (typeof req.body?.isVegetarian !== "undefined")
+      updates.is_vegetarian = Boolean(req.body.isVegetarian) ? 1 : 0;
+    if (typeof req.body?.isVegan !== "undefined")
+      updates.is_vegan = Boolean(req.body.isVegan) ? 1 : 0;
+    if (typeof req.body?.isSpicy !== "undefined")
+      updates.is_spicy = Boolean(req.body.isSpicy) ? 1 : 0;
+    if (typeof req.body?.customizations !== "undefined") {
+      if (!Array.isArray(req.body.customizations)) {
+        return res.status(400).json({ message: "customizations must be an array" });
+      }
+      updates.customizations = JSON.stringify(req.body.customizations);
+    }
+    if (typeof req.body?.addOns !== "undefined") {
+      if (!Array.isArray(req.body.addOns)) {
+        return res.status(400).json({ message: "addOns must be an array" });
+      }
+      updates.add_ons = JSON.stringify(req.body.addOns);
+    }
+
+    const updateKeys = Object.keys(updates);
+    if (updateKeys.length > 0) {
+      const setClause = updateKeys.map((key) => `${key} = ?`).join(", ");
+      const values = updateKeys.map((key) => updates[key]);
+      await mysqlPool.query(
+        `UPDATE menu_items SET ${setClause} WHERE id = ?`,
+        [...values, req.params.id],
+      );
+    }
+
+    const [rows] = await mysqlPool.query(
+      `SELECT id, name, description, price, category, image,
+              is_available, is_popular, is_vegetarian, is_vegan, is_spicy,
+              customizations, add_ons, created_at, updated_at
+         FROM menu_items
+        WHERE id = ?
+        LIMIT 1`,
+      [req.params.id],
+    );
+
+    if (rows.length === 0) {
+      return res.json(null);
+    }
+
+    const row = rows[0];
+    res.json(
+      serializeMenuItem({
+        id: String(row.id),
+        name: row.name,
+        description: row.description || "",
+        price: Number(row.price || 0),
+        category: row.category,
+        image: row.image || null,
+        isAvailable: Boolean(row.is_available),
+        isPopular: Boolean(row.is_popular),
+        isVegetarian: Boolean(row.is_vegetarian),
+        isVegan: Boolean(row.is_vegan),
+        isSpicy: Boolean(row.is_spicy),
+        customizations: (() => {
+          try {
+            const parsed = JSON.parse(String(row.customizations || "[]"));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+        addOns: (() => {
+          try {
+            const parsed = JSON.parse(String(row.add_ons || "[]"));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }),
+    );
   } catch (error) {
     res.status(400).json({ message: "Failed to update menu item" });
   }
@@ -2445,18 +3011,109 @@ app.put("/menu/:id", requireStaffRole, async (req, res) => {
 app.patch("/menu/:id", requireStaffRole, async (req, res) => {
   try {
     if (typeof req.body?.category === "string") {
-      const categoryExists = await Category.findOne({
-        slug: req.body.category.trim(),
-        isActive: true,
-      }).lean();
-      if (!categoryExists) {
+      const [categoryRows] = await mysqlPool.query(
+        "SELECT id FROM categories WHERE slug = ? AND is_active = 1 LIMIT 1",
+        [req.body.category.trim()],
+      );
+      if (categoryRows.length === 0) {
         return res.status(400).json({ message: "Invalid category" });
       }
     }
-    const menuItem = await MenuItem.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
-    res.json(menuItem ? menuItem.toJSON() : null);
+
+    const updates = {};
+    if (typeof req.body?.name === "string") updates.name = req.body.name.trim();
+    if (typeof req.body?.description === "string") updates.description = req.body.description;
+    if (typeof req.body?.category === "string") updates.category = req.body.category.trim();
+    if (typeof req.body?.image === "string" || req.body?.image === null)
+      updates.image = req.body.image;
+    if (typeof req.body?.price !== "undefined") {
+      const price = Number(req.body.price);
+      if (!Number.isFinite(price) || price < 0) {
+        return res.status(400).json({ message: "Invalid price" });
+      }
+      updates.price = price;
+    }
+    if (typeof req.body?.isAvailable !== "undefined")
+      updates.is_available = Boolean(req.body.isAvailable) ? 1 : 0;
+    if (typeof req.body?.isPopular !== "undefined")
+      updates.is_popular = Boolean(req.body.isPopular) ? 1 : 0;
+    if (typeof req.body?.isVegetarian !== "undefined")
+      updates.is_vegetarian = Boolean(req.body.isVegetarian) ? 1 : 0;
+    if (typeof req.body?.isVegan !== "undefined")
+      updates.is_vegan = Boolean(req.body.isVegan) ? 1 : 0;
+    if (typeof req.body?.isSpicy !== "undefined")
+      updates.is_spicy = Boolean(req.body.isSpicy) ? 1 : 0;
+    if (typeof req.body?.customizations !== "undefined") {
+      if (!Array.isArray(req.body.customizations)) {
+        return res.status(400).json({ message: "customizations must be an array" });
+      }
+      updates.customizations = JSON.stringify(req.body.customizations);
+    }
+    if (typeof req.body?.addOns !== "undefined") {
+      if (!Array.isArray(req.body.addOns)) {
+        return res.status(400).json({ message: "addOns must be an array" });
+      }
+      updates.add_ons = JSON.stringify(req.body.addOns);
+    }
+
+    const updateKeys = Object.keys(updates);
+    if (updateKeys.length > 0) {
+      const setClause = updateKeys.map((key) => `${key} = ?`).join(", ");
+      const values = updateKeys.map((key) => updates[key]);
+      await mysqlPool.query(
+        `UPDATE menu_items SET ${setClause} WHERE id = ?`,
+        [...values, req.params.id],
+      );
+    }
+
+    const [rows] = await mysqlPool.query(
+      `SELECT id, name, description, price, category, image,
+              is_available, is_popular, is_vegetarian, is_vegan, is_spicy,
+              customizations, add_ons, created_at, updated_at
+         FROM menu_items
+        WHERE id = ?
+        LIMIT 1`,
+      [req.params.id],
+    );
+
+    if (rows.length === 0) {
+      return res.json(null);
+    }
+
+    const row = rows[0];
+    res.json(
+      serializeMenuItem({
+        id: String(row.id),
+        name: row.name,
+        description: row.description || "",
+        price: Number(row.price || 0),
+        category: row.category,
+        image: row.image || null,
+        isAvailable: Boolean(row.is_available),
+        isPopular: Boolean(row.is_popular),
+        isVegetarian: Boolean(row.is_vegetarian),
+        isVegan: Boolean(row.is_vegan),
+        isSpicy: Boolean(row.is_spicy),
+        customizations: (() => {
+          try {
+            const parsed = JSON.parse(String(row.customizations || "[]"));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+        addOns: (() => {
+          try {
+            const parsed = JSON.parse(String(row.add_ons || "[]"));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })(),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }),
+    );
   } catch (error) {
     res.status(400).json({ message: "Failed to update menu item" });
   }
@@ -2464,7 +3121,9 @@ app.patch("/menu/:id", requireStaffRole, async (req, res) => {
 
 app.delete("/menu/:id", requireStaffRole, async (req, res) => {
   try {
-    await MenuItem.findByIdAndDelete(req.params.id);
+    await mysqlPool.query("DELETE FROM menu_items WHERE id = ?", [
+      req.params.id,
+    ]);
     return res.status(204).send();
   } catch (error) {
     res.status(400).json({ message: "Failed to delete menu item" });
@@ -2973,10 +3632,15 @@ app.post("/payments/clover/hosted-checkout", async (req, res) => {
 
 app.get("/orders", async (req, res) => {
   try {
-    const { userId } = req.query;
-    const filter = userId ? { userId } : {};
-    const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
-    res.json(orders.map(serializeOrder));
+    const userId = typeof req.query?.userId === "string" ? req.query.userId.trim() : "";
+    const query = userId
+      ? "SELECT * FROM orders WHERE user_uid = ? ORDER BY created_at DESC"
+      : "SELECT * FROM orders ORDER BY created_at DESC";
+    const [rows] = userId
+      ? await mysqlPool.query(query, [userId])
+      : await mysqlPool.query(query);
+    const orders = rows.map((row) => serializeOrder(mapOrderRowToOrderObject(row)));
+    res.json(orders);
   } catch (error) {
     res.status(500).json({ message: "Failed to load orders" });
   }
@@ -2984,8 +3648,11 @@ app.get("/orders", async (req, res) => {
 
 app.get("/admin/orders", requireStaffRole, async (_req, res) => {
   try {
-    const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
-    res.json(orders.map(serializeOrder));
+    const [rows] = await mysqlPool.query(
+      "SELECT * FROM orders ORDER BY created_at DESC",
+    );
+    const orders = rows.map((row) => serializeOrder(mapOrderRowToOrderObject(row)));
+    res.json(orders);
   } catch (error) {
     res.status(500).json({ message: "Failed to load admin orders" });
   }
@@ -2993,11 +3660,14 @@ app.get("/admin/orders", requireStaffRole, async (_req, res) => {
 
 app.get("/orders/:id", async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).lean();
-    if (!order) {
+    const [rows] = await mysqlPool.query(
+      "SELECT * FROM orders WHERE id = ? LIMIT 1",
+      [req.params.id],
+    );
+    if (rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
     }
-    res.json(serializeOrder(order));
+    res.json(serializeOrder(mapOrderRowToOrderObject(rows[0])));
   } catch (error) {
     res.status(400).json({ message: "Failed to load order" });
   }
@@ -3038,9 +3708,13 @@ app.post("/orders", async (req, res) => {
     let resolvedPromoCode = "";
 
     if (userId) {
-      const profile = await UserProfile.findOne({ uid: userId });
+      const [profileRows] = await mysqlPool.query(
+        "SELECT * FROM user_profiles WHERE uid = ? LIMIT 1",
+        [String(userId)],
+      );
+      const profile = mapProfileRowToProfileObject(profileRows[0], String(userId));
       if (sanitizedLoyaltyDiscount > 0) {
-        if (!profile?.loyaltyRewardAvailable) {
+        if (!profile.loyaltyRewardAvailable) {
           return res
             .status(400)
             .json({ message: "Loyalty reward is not available" });
@@ -3053,9 +3727,9 @@ app.post("/orders", async (req, res) => {
       }
 
       if (rewardApplied) {
-        await UserProfile.findOneAndUpdate(
-          { uid: userId },
-          { loyaltyRewardAvailable: false, loyaltyStamps: 0 },
+        await mysqlPool.query(
+          "UPDATE user_profiles SET loyalty_reward_available = 0, loyalty_stamps = 0 WHERE uid = ?",
+          [String(userId)],
         );
       }
     } else if (sanitizedLoyaltyDiscount > 0) {
@@ -3097,28 +3771,47 @@ app.post("/orders", async (req, res) => {
       ) || 0,
     );
 
-    const order = await Order.create({
-      userId,
-      email,
-      deliveryMode,
-      address: deliveryMode === "delivery" ? address : undefined,
-      items: orderItems,
-      subtotal,
-      deliveryFee,
-      loyaltyDiscount: sanitizedLoyaltyDiscount,
-      cashbackEarned,
-      total: recalculatedTotal,
-      paymentMethod,
-      paymentStatus:
-        paymentStatus ||
-        (paymentMethod === "cash" ? "cash_on_collection" : "pending"),
-      notes,
-      loyaltyRewardApplied: rewardApplied,
-      invoiceNumber: buildInvoiceNumber(),
-      promoCode: resolvedPromoCode,
-      promoDiscount,
-      paymentIntentId,
-    });
+    const finalPaymentStatus =
+      paymentStatus ||
+      (paymentMethod === "cash" ? "cash_on_collection" : "pending");
+    const invoiceNumber = buildInvoiceNumber();
+
+    const [insertResult] = await mysqlPool.query(
+      `INSERT INTO orders (
+         user_uid, email, delivery_mode, address_json, items_json,
+         subtotal, delivery_fee, loyalty_discount, cashback_earned, total,
+         payment_method, loyalty_reward_applied, invoice_number, receipt_email_sent,
+         promo_code, promo_discount, payment_intent_id, payment_status, notes, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId ? String(userId) : null,
+        String(email).trim(),
+        deliveryMode,
+        deliveryMode === "delivery" ? JSON.stringify(address || {}) : null,
+        JSON.stringify(orderItems),
+        Number(subtotal || 0),
+        Number(deliveryFee || 0),
+        Number(sanitizedLoyaltyDiscount || 0),
+        Number(cashbackEarned || 0),
+        Number(recalculatedTotal || 0),
+        paymentMethod,
+        rewardApplied ? 1 : 0,
+        invoiceNumber,
+        0,
+        resolvedPromoCode || null,
+        Number(promoDiscount || 0),
+        paymentIntentId ? String(paymentIntentId) : null,
+        finalPaymentStatus,
+        typeof notes === "string" ? notes : "",
+        "Order Received",
+      ],
+    );
+
+    const [orderRows] = await mysqlPool.query(
+      "SELECT * FROM orders WHERE id = ? LIMIT 1",
+      [insertResult.insertId],
+    );
+    const order = mapOrderRowToOrderObject(orderRows[0]);
 
     const contactPhone = order.address?.phone;
     if (contactPhone) {
@@ -3134,7 +3827,10 @@ app.post("/orders", async (req, res) => {
 
     const receiptSent = await sendReceiptEmail(order);
     if (receiptSent) {
-      await Order.findByIdAndUpdate(order._id, { receiptEmailSent: true });
+      await mysqlPool.query(
+        "UPDATE orders SET receipt_email_sent = 1 WHERE id = ?",
+        [order._id],
+      );
       order.receiptEmailSent = true;
     }
 
@@ -3153,14 +3849,14 @@ app.post("/orders", async (req, res) => {
         paymentMethod: normalizedPaymentMethod,
         status: normalizedPaymentStatus,
         metadata: {
-          orderId: order._id.toString(),
+          orderId: String(order._id),
           orderEmail: order.email,
           source: "order_create",
         },
       });
     }
 
-    res.status(201).json(serializeOrder(order.toJSON()));
+    res.status(201).json(serializeOrder(order));
   } catch (error) {
     res.status(400).json({ message: "Failed to create order" });
   }
@@ -3173,15 +3869,22 @@ app.patch("/orders/:id/status", requireStaffRole, async (req, res) => {
       return res.status(400).json({ message: "Status is required" });
     }
 
-    const order = await Order.findById(req.params.id);
-    if (!order) {
+    const [rows] = await mysqlPool.query(
+      "SELECT * FROM orders WHERE id = ? LIMIT 1",
+      [req.params.id],
+    );
+    if (rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
     }
+    const order = mapOrderRowToOrderObject(rows[0]);
 
     const previousStatus = normalizeOrderStatus(order.status);
     const normalizedStatus = normalizeOrderStatus(status);
+    await mysqlPool.query(
+      "UPDATE orders SET status = ? WHERE id = ?",
+      [normalizedStatus, req.params.id],
+    );
     order.status = normalizedStatus;
-    await order.save();
 
     const contactPhone = order.address?.phone;
     if (contactPhone) {
@@ -3200,19 +3903,43 @@ app.patch("/orders/:id/status", requireStaffRole, async (req, res) => {
       previousStatus !== "Delivered" &&
       order.userId
     ) {
-      const profile = await UserProfile.findOne({ uid: order.userId });
+      const [profileRows] = await mysqlPool.query(
+        "SELECT * FROM user_profiles WHERE uid = ? LIMIT 1",
+        [String(order.userId)],
+      );
+      const profile = mapProfileRowToProfileObject(profileRows[0], String(order.userId));
       if (profile) {
-        const nextStamps = (profile.loyaltyStamps || 0) + 1;
+        const nextStamps = Number(profile.loyaltyStamps || 0) + 1;
         const rewardAvailable = nextStamps >= 5;
         const earnedPoints = Math.max(0, Math.floor(Number(order.total || 0)));
-        await UserProfile.findOneAndUpdate(
-          { uid: order.userId },
-          {
-            completedOrders: (profile.completedOrders || 0) + 1,
-            loyaltyStamps: rewardAvailable ? 5 : nextStamps,
-            loyaltyRewardAvailable: rewardAvailable,
-            rewardPoints: (profile.rewardPoints || 0) + earnedPoints,
-          },
+        const completedOrders = Number(profile.completedOrders || 0) + 1;
+        const loyaltyStamps = rewardAvailable ? 5 : nextStamps;
+        const rewardPoints = Number(profile.rewardPoints || 0) + earnedPoints;
+
+        await mysqlPool.query(
+          `INSERT INTO user_profiles (
+             uid, email, full_name, phone, date_of_birth, preferred_contact,
+             addresses, completed_orders, loyalty_stamps, loyalty_reward_available, reward_points
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             completed_orders = VALUES(completed_orders),
+             loyalty_stamps = VALUES(loyalty_stamps),
+             loyalty_reward_available = VALUES(loyalty_reward_available),
+             reward_points = VALUES(reward_points),
+             updated_at = CURRENT_TIMESTAMP`,
+          [
+            String(order.userId),
+            profile.email || order.email || "",
+            profile.fullName || "",
+            profile.phone || "",
+            profile.dateOfBirth || "",
+            profile.preferredContact || "email",
+            JSON.stringify(profile.addresses || []),
+            completedOrders,
+            loyaltyStamps,
+            rewardAvailable ? 1 : 0,
+            rewardPoints,
+          ],
         );
       }
     }
@@ -3233,7 +3960,7 @@ app.patch("/orders/:id/status", requireStaffRole, async (req, res) => {
       }
     }
 
-    return res.json(serializeOrder(order.toJSON()));
+    return res.json(serializeOrder(order));
   } catch (error) {
     return res.status(400).json({ message: "Failed to update order status" });
   }
@@ -3248,14 +3975,18 @@ app.post("/support/contact", async (req, res) => {
         .json({ message: "Name, email, and message are required" });
     }
 
-    const record = await SupportMessage.create({
-      name,
-      email,
-      phone,
-      orderId,
-      message,
-      source: "contact_form",
-    });
+    const [result] = await mysqlPool.query(
+      `INSERT INTO support_messages (name, email, phone, order_id, message, source)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        String(name).trim(),
+        String(email).trim(),
+        String(phone || "").trim(),
+        String(orderId || "").trim(),
+        String(message).trim(),
+        "contact_form",
+      ],
+    );
 
     if (phone) {
       sendSmsNotification({
@@ -3268,7 +3999,7 @@ app.post("/support/contact", async (req, res) => {
       });
     }
 
-    return res.status(201).json({ id: record._id?.toString() });
+    return res.status(201).json({ id: String(result.insertId) });
   } catch (error) {
     return res.status(400).json({ message: "Failed to submit message" });
   }
@@ -3290,22 +4021,29 @@ app.post("/marketing/abandoned-cart", async (req, res) => {
       return res.status(400).json({ message: "Email or phone is required" });
     }
 
-    const record = await AbandonedCart.create({
-      email,
-      phone,
-      items: Array.isArray(items)
-        ? items.map((item) => ({
-            name: item?.menuItem?.name || item?.name || "Item",
-            quantity: Number(item?.quantity || 1),
-            totalPrice: Number(item?.totalPrice || 0),
-          }))
-        : [],
-      subtotal: Number(subtotal || 0),
-      deliveryFee: Number(deliveryFee || 0),
-      total: Number(total || 0),
-      source: source || "checkout",
-      promoLink: promoLink || "",
-    });
+    const normalizedItems = Array.isArray(items)
+      ? items.map((item) => ({
+          name: item?.menuItem?.name || item?.name || "Item",
+          quantity: Number(item?.quantity || 1),
+          totalPrice: Number(item?.totalPrice || 0),
+        }))
+      : [];
+
+    const [result] = await mysqlPool.query(
+      `INSERT INTO abandoned_carts (
+         email, phone, items_json, subtotal, delivery_fee, total, source, promo_link, reminder_sent
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      [
+        email ? String(email).trim() : null,
+        phone ? String(phone).trim() : null,
+        JSON.stringify(normalizedItems),
+        Number(subtotal || 0),
+        Number(deliveryFee || 0),
+        Number(total || 0),
+        String(source || "checkout"),
+        String(promoLink || ""),
+      ],
+    );
 
     if (phone) {
       const linkText = promoLink ? ` Complete here: ${promoLink}` : "";
@@ -3319,7 +4057,7 @@ app.post("/marketing/abandoned-cart", async (req, res) => {
       });
     }
 
-    res.status(201).json({ id: record._id?.toString() });
+    res.status(201).json({ id: String(result.insertId) });
   } catch (error) {
     res.status(400).json({ message: "Failed to capture abandoned cart" });
   }
@@ -3402,20 +4140,32 @@ app.put("/settings/business", requireAdmin, async (req, res) => {
       return res.status(400).json({ message: issues.join("; ") });
     }
 
-    const updated = await BusinessSettings.findByIdAndUpdate(
-      settings._id,
-      {
-        businessName: normalizedBusinessName,
-        logoUrl: normalizedLogoUrl,
-        openingHours: openingHours || settings.openingHours,
-        holidayClosures: holidayClosures || settings.holidayClosures,
-        paymentSettings: normalizedPaymentSettings,
-        aboutChef: normalizedAboutChef,
-        contactInfo: normalizedContactInfo,
-        offerPopup: normalizedOfferPopup,
-      },
-      { new: true },
-    ).lean();
+    await mysqlPool.query(
+      `UPDATE business_settings
+          SET business_name = ?,
+              logo_url = ?,
+              opening_hours = ?,
+              holiday_closures = ?,
+              payment_settings = ?,
+              about_chef = ?,
+              contact_info = ?,
+              offer_popup = ?,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+      [
+        normalizedBusinessName,
+        normalizedLogoUrl,
+        JSON.stringify(openingHours || settings.openingHours),
+        JSON.stringify(holidayClosures || settings.holidayClosures),
+        JSON.stringify(normalizedPaymentSettings),
+        JSON.stringify(normalizedAboutChef),
+        JSON.stringify(normalizedContactInfo),
+        JSON.stringify(normalizedOfferPopup),
+        settings.id,
+      ],
+    );
+
+    const updated = await getBusinessSettings();
     res.json(toAdminBusinessSettings(updated));
   } catch (error) {
     res.status(400).json({ message: "Failed to update business settings" });
@@ -3424,7 +4174,29 @@ app.put("/settings/business", requireAdmin, async (req, res) => {
 
 app.get("/promotions", requireAdmin, async (_req, res) => {
   try {
-    const promotions = await Promotion.find().sort({ createdAt: -1 }).lean();
+    const [rows] = await mysqlPool.query(
+      `SELECT id, code, description, discount_type, value, min_subtotal, max_discount,
+              starts_at, ends_at, first_order_only, min_completed_orders, active,
+              created_at, updated_at
+         FROM promotions
+        ORDER BY created_at DESC`,
+    );
+    const promotions = rows.map((row) => ({
+      id: String(row.id),
+      code: String(row.code || "").trim().toUpperCase(),
+      description: String(row.description || ""),
+      discountType: String(row.discount_type || "amount"),
+      value: Number(row.value || 0),
+      minSubtotal: Number(row.min_subtotal || 0),
+      maxDiscount: Number(row.max_discount || 0),
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      firstOrderOnly: Boolean(row.first_order_only),
+      minCompletedOrders: Number(row.min_completed_orders || 0),
+      active: Boolean(row.active),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
     res.json(promotions);
   } catch (error) {
     res.status(500).json({ message: "Failed to load promotions" });
@@ -3440,11 +4212,56 @@ app.post("/promotions", requireAdmin, async (req, res) => {
     if (!code) {
       return res.status(400).json({ message: "Promo code is required" });
     }
-    const created = await Promotion.create({
-      ...payload,
-      code,
+    const discountType =
+      payload.discountType === "percent" ? "percent" : "amount";
+
+    const [result] = await mysqlPool.query(
+      `INSERT INTO promotions (
+         code, description, discount_type, value, min_subtotal, max_discount,
+         starts_at, ends_at, first_order_only, min_completed_orders, active
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        code,
+        String(payload.description || ""),
+        discountType,
+        Number(payload.value || 0),
+        Number(payload.minSubtotal || 0),
+        Number(payload.maxDiscount || 0),
+        payload.startsAt || null,
+        payload.endsAt || null,
+        payload.firstOrderOnly ? 1 : 0,
+        Number(payload.minCompletedOrders || 0),
+        typeof payload.active === "boolean" ? (payload.active ? 1 : 0) : 1,
+      ],
+    );
+
+    const [rows] = await mysqlPool.query(
+      `SELECT id, code, description, discount_type, value, min_subtotal, max_discount,
+              starts_at, ends_at, first_order_only, min_completed_orders, active,
+              created_at, updated_at
+         FROM promotions
+        WHERE id = ?
+        LIMIT 1`,
+      [result.insertId],
+    );
+
+    const row = rows[0];
+    res.status(201).json({
+      id: String(row.id),
+      code: String(row.code || "").trim().toUpperCase(),
+      description: String(row.description || ""),
+      discountType: String(row.discount_type || "amount"),
+      value: Number(row.value || 0),
+      minSubtotal: Number(row.min_subtotal || 0),
+      maxDiscount: Number(row.max_discount || 0),
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      firstOrderOnly: Boolean(row.first_order_only),
+      minCompletedOrders: Number(row.min_completed_orders || 0),
+      active: Boolean(row.active),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     });
-    res.status(201).json(created);
   } catch (error) {
     res.status(400).json({ message: "Failed to create promotion" });
   }
@@ -3453,17 +4270,105 @@ app.post("/promotions", requireAdmin, async (req, res) => {
 app.put("/promotions/:id", requireAdmin, async (req, res) => {
   try {
     const payload = req.body || {};
-    if (payload.code) {
-      payload.code = String(payload.code).trim().toUpperCase();
-    }
-    const updated = await Promotion.findByIdAndUpdate(req.params.id, payload, {
-      new: true,
-      runValidators: true,
-    }).lean();
-    if (!updated) {
+    const [existingRows] = await mysqlPool.query(
+      "SELECT * FROM promotions WHERE id = ? LIMIT 1",
+      [req.params.id],
+    );
+    const current = existingRows[0];
+    if (!current) {
       return res.status(404).json({ message: "Promotion not found" });
     }
-    res.json(updated);
+
+    const next = {
+      code: payload.code
+        ? String(payload.code).trim().toUpperCase()
+        : String(current.code || "").trim().toUpperCase(),
+      description:
+        typeof payload.description === "string"
+          ? payload.description
+          : String(current.description || ""),
+      discountType:
+        payload.discountType === "percent" || payload.discountType === "amount"
+          ? payload.discountType
+          : String(current.discount_type || "amount"),
+      value:
+        typeof payload.value !== "undefined"
+          ? Number(payload.value || 0)
+          : Number(current.value || 0),
+      minSubtotal:
+        typeof payload.minSubtotal !== "undefined"
+          ? Number(payload.minSubtotal || 0)
+          : Number(current.min_subtotal || 0),
+      maxDiscount:
+        typeof payload.maxDiscount !== "undefined"
+          ? Number(payload.maxDiscount || 0)
+          : Number(current.max_discount || 0),
+      startsAt:
+        typeof payload.startsAt !== "undefined" ? payload.startsAt : current.starts_at,
+      endsAt: typeof payload.endsAt !== "undefined" ? payload.endsAt : current.ends_at,
+      firstOrderOnly:
+        typeof payload.firstOrderOnly === "boolean"
+          ? payload.firstOrderOnly
+          : Boolean(current.first_order_only),
+      minCompletedOrders:
+        typeof payload.minCompletedOrders !== "undefined"
+          ? Number(payload.minCompletedOrders || 0)
+          : Number(current.min_completed_orders || 0),
+      active:
+        typeof payload.active === "boolean"
+          ? payload.active
+          : Boolean(current.active),
+    };
+
+    await mysqlPool.query(
+      `UPDATE promotions
+          SET code = ?, description = ?, discount_type = ?, value = ?, min_subtotal = ?,
+              max_discount = ?, starts_at = ?, ends_at = ?, first_order_only = ?,
+              min_completed_orders = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+      [
+        next.code,
+        next.description,
+        next.discountType,
+        next.value,
+        next.minSubtotal,
+        next.maxDiscount,
+        next.startsAt || null,
+        next.endsAt || null,
+        next.firstOrderOnly ? 1 : 0,
+        next.minCompletedOrders,
+        next.active ? 1 : 0,
+        req.params.id,
+      ],
+    );
+
+    const [rows] = await mysqlPool.query(
+      `SELECT id, code, description, discount_type, value, min_subtotal, max_discount,
+              starts_at, ends_at, first_order_only, min_completed_orders, active,
+              created_at, updated_at
+         FROM promotions
+        WHERE id = ?
+        LIMIT 1`,
+      [req.params.id],
+    );
+
+    const row = rows[0];
+    res.json({
+      id: String(row.id),
+      code: String(row.code || "").trim().toUpperCase(),
+      description: String(row.description || ""),
+      discountType: String(row.discount_type || "amount"),
+      value: Number(row.value || 0),
+      minSubtotal: Number(row.min_subtotal || 0),
+      maxDiscount: Number(row.max_discount || 0),
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      firstOrderOnly: Boolean(row.first_order_only),
+      minCompletedOrders: Number(row.min_completed_orders || 0),
+      active: Boolean(row.active),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    });
   } catch (error) {
     res.status(400).json({ message: "Failed to update promotion" });
   }
@@ -3494,16 +4399,19 @@ app.get("/admin/marketing/inactive", requireAdmin, async (req, res) => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
 
-    const inactive = await Order.aggregate([
-      { $group: { _id: "$email", lastOrderAt: { $max: "$createdAt" } } },
-      { $match: { lastOrderAt: { $lte: cutoff } } },
-      { $sort: { lastOrderAt: -1 } },
-      { $limit: 200 },
-    ]);
+    const [rows] = await mysqlPool.query(
+      `SELECT email, MAX(created_at) AS lastOrderAt
+         FROM orders
+        GROUP BY email
+       HAVING MAX(created_at) <= ?
+        ORDER BY lastOrderAt DESC
+        LIMIT 200`,
+      [cutoff],
+    );
 
     res.json(
-      inactive.map((entry) => ({
-        email: entry._id,
+      rows.map((entry) => ({
+        email: entry.email,
         lastOrderAt: entry.lastOrderAt,
       })),
     );
@@ -3553,7 +4461,10 @@ app.post("/admin/marketing/campaigns/send", requireAdmin, async (req, res) => {
 
 app.get("/admin/analytics", requireStaffRole, async (_req, res) => {
   try {
-    const orders = await Order.find({}).lean();
+    const [orderRows] = await mysqlPool.query(
+      "SELECT * FROM orders ORDER BY created_at DESC",
+    );
+    const orders = orderRows.map((row) => mapOrderRowToOrderObject(row));
     const totalOrders = orders.length;
     const totalRevenue = orders.reduce(
       (sum, order) => sum + (Number(order.total) || 0),
@@ -3715,18 +4626,11 @@ app.get("/admin/analytics", requireStaffRole, async (_req, res) => {
 
 app.get("/users/:uid", async (req, res) => {
   try {
-    const profile = await UserProfile.findOne({ uid: req.params.uid }).lean();
-    if (!profile) {
-      return res.json({
-        uid: req.params.uid,
-        email: "",
-        fullName: "",
-        phone: "",
-        dateOfBirth: "",
-        preferredContact: "email",
-        addresses: [],
-      });
-    }
+    const [rows] = await mysqlPool.query(
+      "SELECT * FROM user_profiles WHERE uid = ? LIMIT 1",
+      [req.params.uid],
+    );
+    const profile = mapProfileRowToProfileObject(rows[0], req.params.uid);
     res.json(profile);
   } catch (error) {
     res.status(500).json({ message: "Failed to load profile" });
@@ -3738,43 +4642,59 @@ app.put("/users/:uid", async (req, res) => {
     const { email, addresses, fullName, phone, dateOfBirth, preferredContact } =
       req.body || {};
 
-    const updateDoc = {
+    const [existingRows] = await mysqlPool.query(
+      "SELECT * FROM user_profiles WHERE uid = ? LIMIT 1",
+      [req.params.uid],
+    );
+    const current = mapProfileRowToProfileObject(existingRows[0], req.params.uid);
+
+    const nextProfile = {
       uid: req.params.uid,
+      email: typeof email === "string" ? email.trim() : current.email,
+      fullName: typeof fullName === "string" ? fullName.trim() : current.fullName,
+      phone: typeof phone === "string" ? phone.trim() : current.phone,
+      dateOfBirth:
+        typeof dateOfBirth === "string" ? dateOfBirth.trim() : current.dateOfBirth,
+      preferredContact:
+        typeof preferredContact === "string" && ["email", "phone", ""].includes(preferredContact)
+          ? preferredContact
+          : current.preferredContact,
+      addresses: Array.isArray(addresses) ? addresses : current.addresses,
+      completedOrders: current.completedOrders,
+      loyaltyStamps: current.loyaltyStamps,
+      loyaltyRewardAvailable: current.loyaltyRewardAvailable,
+      rewardPoints: current.rewardPoints,
     };
 
-    if (typeof email === "string") {
-      updateDoc.email = email.trim();
-    }
+    await mysqlPool.query(
+      `INSERT INTO user_profiles (
+         uid, email, full_name, phone, date_of_birth, preferred_contact,
+         addresses, completed_orders, loyalty_stamps, loyalty_reward_available, reward_points
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         email = VALUES(email),
+         full_name = VALUES(full_name),
+         phone = VALUES(phone),
+         date_of_birth = VALUES(date_of_birth),
+         preferred_contact = VALUES(preferred_contact),
+         addresses = VALUES(addresses),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        nextProfile.uid,
+        nextProfile.email,
+        nextProfile.fullName,
+        nextProfile.phone,
+        nextProfile.dateOfBirth,
+        nextProfile.preferredContact,
+        JSON.stringify(nextProfile.addresses || []),
+        nextProfile.completedOrders,
+        nextProfile.loyaltyStamps,
+        nextProfile.loyaltyRewardAvailable ? 1 : 0,
+        nextProfile.rewardPoints,
+      ],
+    );
 
-    if (Array.isArray(addresses)) {
-      updateDoc.addresses = addresses;
-    }
-
-    if (typeof fullName === "string") {
-      updateDoc.fullName = fullName.trim();
-    }
-
-    if (typeof phone === "string") {
-      updateDoc.phone = phone.trim();
-    }
-
-    if (typeof dateOfBirth === "string") {
-      updateDoc.dateOfBirth = dateOfBirth.trim();
-    }
-
-    if (
-      typeof preferredContact === "string" &&
-      ["email", "phone", ""].includes(preferredContact)
-    ) {
-      updateDoc.preferredContact = preferredContact;
-    }
-
-    const profile = await UserProfile.findOneAndUpdate(
-      { uid: req.params.uid },
-      { $set: updateDoc },
-      { new: true, upsert: true },
-    ).lean();
-    res.json(profile);
+    res.json(nextProfile);
   } catch (error) {
     res.status(400).json({ message: "Failed to update profile" });
   }

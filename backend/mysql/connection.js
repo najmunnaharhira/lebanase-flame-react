@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import mysql from "mysql2/promise";
 
-dotenv.config({ path: new URL("../.env", import.meta.url) });
+dotenv.config({ path: new URL("../../.env", import.meta.url) });
 
 const {
   MYSQL_HOST = "localhost",
