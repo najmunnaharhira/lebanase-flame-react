@@ -1,3 +1,4 @@
+import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AdminHeader } from "@/components/AdminHeader";
@@ -27,6 +28,23 @@ const AdminUsers = () => {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AdminUser["role"]>("user");
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  const STAFF_ROLES: AdminUser["role"][] = ["admin", "manager", "moderator", "editor"];
+
+  const getLoginUrl = (userRole: AdminUser["role"]) => {
+    if (STAFF_ROLES.includes(userRole)) {
+      return `${window.location.origin}/admin/login`;
+    }
+    return null;
+  };
+
+  const handleCopyUrl = (userId: number, url: string) => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(userId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
 
   const canAssignRole = (nextRole: AdminUser["role"]) => {
     if (currentRole === "admin") return true;
@@ -231,6 +249,7 @@ const AdminUsers = () => {
                   <th className="text-left py-2 pr-4">Email</th>
                   <th className="text-left py-2 pr-4">Role</th>
                   <th className="text-left py-2 pr-4">Status</th>
+                  <th className="text-left py-2 pr-4">Login URL</th>
                   <th className="text-right py-2">Actions</th>
                 </tr>
               </thead>
@@ -263,6 +282,29 @@ const AdminUsers = () => {
                       ) : (
                         <span className="text-red-600">Inactive</span>
                       )}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {(() => {
+                        const url = getLoginUrl(user.role);
+                        if (!url) return <span className="text-muted-foreground">—</span>;
+                        return (
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs text-muted-foreground font-mono truncate max-w-[180px]" title={url}>
+                              {url}
+                            </span>
+                            <button
+                              type="button"
+                              title={copiedId === user.id ? "Copied!" : "Copy login URL"}
+                              onClick={() => handleCopyUrl(user.id, url)}
+                              className="shrink-0 h-6 w-6 flex items-center justify-center rounded border border-input bg-background hover:bg-muted transition-colors"
+                            >
+                              {copiedId === user.id
+                                ? <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="py-2 text-right">
                       <Button

@@ -99,14 +99,15 @@ const AdminLogin = () => {
       const idToken = String(credential?.idToken || "").trim();
       const firebaseIdToken = await googleResult.user.getIdToken();
 
-      const response = await apiRequest<AdminLoginResponse>("/auth/google", {
-        method: "POST",
-        body: JSON.stringify({ idToken, firebaseIdToken }),
-      });
-
-      if (!["admin", "manager", "moderator", "editor"].includes(response.user.role)) {
+      let response: AdminLoginResponse;
+      try {
+        response = await apiRequest<AdminLoginResponse>("/admin/auth/google", {
+          method: "POST",
+          body: JSON.stringify({ idToken, firebaseIdToken }),
+        });
+      } catch (apiErr) {
         await signOut(auth);
-        throw new Error("This Google account is not allowed to access admin panel.");
+        throw apiErr;
       }
 
       setAdminSession({

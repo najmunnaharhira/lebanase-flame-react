@@ -18,6 +18,7 @@ import sharp from "sharp";
 import twilio from "twilio";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
+import { verifyFirebaseToken } from "./config/firebaseAdmin.js";
 import { sanitizeInput } from "./middleware/sanitizeInput.js";
 import { AbandonedCart } from "./models/AbandonedCart.js";
 import { BusinessSettings } from "./models/BusinessSettings.js";
@@ -1171,55 +1172,28 @@ app.get("/auth/me", authenticateJwt, async (req, res) => {
 
 app.post("/auth/google", async (req, res) => {
   try {
-    const idToken = String(req.body?.idToken || "").trim();
-    const firebaseIdToken = String(req.body?.firebaseIdToken || "").trim();
+    const firebaseIdToken = String(req.body?.firebaseIdToken || req.body?.idToken || "").trim();
 
-    if (!idToken && !firebaseIdToken) {
+    if (!firebaseIdToken) {
       return res.status(400).json({ message: "Google idToken is required" });
     }
 
-    const acceptedAudiences = [googleClientId, firebaseProjectId].filter(Boolean);
-    if (acceptedAudiences.length === 0) {
-      return res
-        .status(500)
-        .json({ message: "Google OAuth is not configured" });
-    }
-
-    const tokenCandidates = [idToken, firebaseIdToken].filter(Boolean);
-    let googleUser = null;
-
-    for (const candidate of tokenCandidates) {
-      const googleRes = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(candidate)}`,
-      );
-
-      if (!googleRes.ok) {
-        continue;
-      }
-
-      const payload = await googleRes.json();
-      if (!acceptedAudiences.includes(String(payload?.aud || ""))) {
-        continue;
-      }
-
-      googleUser = payload;
-      break;
-    }
-
-    if (!googleUser) {
+    let decoded;
+    try {
+      decoded = await verifyFirebaseToken(firebaseIdToken);
+    } catch (verifyErr) {
+      console.error("Firebase token verification failed:", verifyErr.message);
       return res.status(401).json({ message: "Invalid Google token" });
     }
 
-    const email = String(googleUser.email || "").toLowerCase();
-    if (!email || googleUser.email_verified !== "true") {
-      return res
-        .status(401)
-        .json({ message: "Google account is not verified" });
+    const email = String(decoded.email || "").toLowerCase();
+    if (!email || !decoded.email_verified) {
+      return res.status(401).json({ message: "Google account is not verified" });
     }
 
-    const googleId = String(googleUser.sub || "").trim();
-    const name = String(googleUser.name || "Google User").trim();
-    const picture = String(googleUser.picture || "").trim();
+    const googleId = String(decoded.uid || "").trim();
+    const name = String(decoded.name || "Google User").trim();
+    const picture = String(decoded.picture || "").trim();
 
     let user = await findUserByEmail(email);
     if (!user) {
@@ -1256,6 +1230,73 @@ app.post("/auth/google", async (req, res) => {
       accessToken: token,
       user: sanitizeUserResponse(user),
       permissions: getRolePermissions(user.role),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to sign in with Google" });
+  }
+});
+
+app.post("/admin/auth/google", async (req, res) => {
+  try {
+    const firebaseIdToken = String(req.body?.firebaseIdToken || req.body?.idToken || "").trim();
+
+    if (!firebaseIdToken) {
+      return res.status(400).json({ message: "Google idToken is required" });
+    }
+
+    let decoded;
+    try {
+      decoded = await verifyFirebaseToken(firebaseIdToken);
+    } catch (verifyErr) {
+      console.error("Firebase admin token verification failed:", verifyErr.message);
+      return res.status(401).json({ message: "Invalid Google token" });
+    }
+
+    const email = String(decoded.email || "").toLowerCase();
+    if (!email || !decoded.email_verified) {
+      return res.status(401).json({ message: "Google account is not verified" });
+    }
+
+    const user = await findUserByEmail(email);
+
+    if (!user || !user.is_active) {
+      return res.status(403).json({
+        message: "Account not registered for admin panel. Contact an administrator to set up your account first.",
+      });
+    }
+
+    if (!["admin", "manager", "moderator", "editor"].includes(user.role)) {
+      return res.status(403).json({
+        message: "This Google account is not authorized for admin panel access.",
+      });
+    }
+
+    const googleId = String(decoded.uid || "").trim();
+    const name = String(decoded.name || "").trim();
+    const picture = String(decoded.picture || "").trim();
+
+    await mysqlPool.query(
+      "UPDATE users SET google_id = ?, profile_image = COALESCE(NULLIF(?, ''), profile_image), name = COALESCE(NULLIF(?, ''), name), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [googleId || null, picture || null, name || null, user.id],
+    );
+    const updatedUser = await findUserById(user.id);
+
+    const token = signAccessToken(updatedUser);
+    setAuthCookie(res, token);
+
+    await logActivity({
+      userId: updatedUser.id,
+      action: "admin_google_login",
+      entityType: "user",
+      entityId: String(updatedUser.id),
+      details: null,
+      ipAddress: normalizeIp(getRequestIp(req)),
+    });
+
+    return res.json({
+      accessToken: token,
+      user: sanitizeUserResponse(updatedUser),
+      permissions: getRolePermissions(updatedUser.role),
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to sign in with Google" });
@@ -2231,7 +2272,7 @@ app.get("/categories", async (_req, res) => {
   }
 });
 
-app.get("/categories/all", requireAdmin, async (_req, res) => {
+app.get("/categories/all", requireStaffRole, async (_req, res) => {
   try {
     const categories = await Category.find({})
       .sort({ sortOrder: 1, name: 1 })
@@ -2242,7 +2283,7 @@ app.get("/categories/all", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/categories", requireAdmin, async (req, res) => {
+app.post("/categories", requireStaffRole, async (req, res) => {
   try {
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     const icon =
@@ -2275,7 +2316,7 @@ app.post("/categories", requireAdmin, async (req, res) => {
   }
 });
 
-app.patch("/categories/:id", requireAdmin, async (req, res) => {
+app.patch("/categories/:id", requireStaffRole, async (req, res) => {
   try {
     const category = await Category.findOne({ slug: req.params.id });
     if (!category) {
@@ -2327,7 +2368,7 @@ app.patch("/categories/:id", requireAdmin, async (req, res) => {
   }
 });
 
-app.delete("/categories/:id", requireAdmin, async (req, res) => {
+app.delete("/categories/:id", requireStaffRole, async (req, res) => {
   try {
     const category = await Category.findOne({ slug: req.params.id }).lean();
     if (!category) {
@@ -2351,7 +2392,7 @@ app.delete("/categories/:id", requireAdmin, async (req, res) => {
   }
 });
 
-app.get("/menu/all", requireAdmin, async (_req, res) => {
+app.get("/menu/all", requireStaffRole, async (_req, res) => {
   try {
     const items = await MenuItem.find({}).sort({ category: 1, name: 1 }).lean();
     res.json(items.map(serializeMenuItem));
@@ -2360,7 +2401,7 @@ app.get("/menu/all", requireAdmin, async (_req, res) => {
   }
 });
 
-app.post("/menu", requireAdmin, async (req, res) => {
+app.post("/menu", requireStaffRole, async (req, res) => {
   try {
     const category =
       typeof req.body?.category === "string" ? req.body.category.trim() : "";
@@ -2381,7 +2422,7 @@ app.post("/menu", requireAdmin, async (req, res) => {
   }
 });
 
-app.put("/menu/:id", requireAdmin, async (req, res) => {
+app.put("/menu/:id", requireStaffRole, async (req, res) => {
   try {
     if (typeof req.body?.category === "string") {
       const categoryExists = await Category.findOne({
@@ -2401,7 +2442,7 @@ app.put("/menu/:id", requireAdmin, async (req, res) => {
   }
 });
 
-app.patch("/menu/:id", requireAdmin, async (req, res) => {
+app.patch("/menu/:id", requireStaffRole, async (req, res) => {
   try {
     if (typeof req.body?.category === "string") {
       const categoryExists = await Category.findOne({
@@ -2421,7 +2462,7 @@ app.patch("/menu/:id", requireAdmin, async (req, res) => {
   }
 });
 
-app.delete("/menu/:id", requireAdmin, async (req, res) => {
+app.delete("/menu/:id", requireStaffRole, async (req, res) => {
   try {
     await MenuItem.findByIdAndDelete(req.params.id);
     return res.status(204).send();
@@ -2432,7 +2473,7 @@ app.delete("/menu/:id", requireAdmin, async (req, res) => {
 
 app.post(
   "/menu/upload",
-  requireAdmin,
+  requireStaffRole,
   upload.single("image"),
   async (req, res) => {
     if (!req.file) {
@@ -2941,7 +2982,7 @@ app.get("/orders", async (req, res) => {
   }
 });
 
-app.get("/admin/orders", requireAdmin, async (_req, res) => {
+app.get("/admin/orders", requireStaffRole, async (_req, res) => {
   try {
     const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
     res.json(orders.map(serializeOrder));
@@ -3125,7 +3166,7 @@ app.post("/orders", async (req, res) => {
   }
 });
 
-app.patch("/orders/:id/status", requireAdmin, async (req, res) => {
+app.patch("/orders/:id/status", requireStaffRole, async (req, res) => {
   try {
     const { status } = req.body;
     if (!status) {
@@ -3510,7 +3551,7 @@ app.post("/admin/marketing/campaigns/send", requireAdmin, async (req, res) => {
   }
 });
 
-app.get("/admin/analytics", requireAdmin, async (_req, res) => {
+app.get("/admin/analytics", requireStaffRole, async (_req, res) => {
   try {
     const orders = await Order.find({}).lean();
     const totalOrders = orders.length;

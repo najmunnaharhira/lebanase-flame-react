@@ -82,9 +82,8 @@ export const Header = () => {
         <div className="flex items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center">
-            <img 
+            <img
               src={logoSrc}
-              alt={businessName}
               alt={businessName}
               className="h-14 md:h-16 w-auto"
               onError={() => setLogoSrc(logo)}

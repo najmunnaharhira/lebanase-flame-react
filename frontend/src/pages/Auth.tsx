@@ -45,7 +45,7 @@ const Auth = () => {
     setError("");
 
     if (password.length < 6) {
-      toast.error("Password must be at least 6 characters long.");
+      toast({ variant: "destructive", title: "Password too short", description: "Password must be at least 6 characters long." });
       return;
     }
 

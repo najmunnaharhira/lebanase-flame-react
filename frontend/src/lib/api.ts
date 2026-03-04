@@ -95,7 +95,14 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(errorText || "Request failed");
+    let errorMessage = "Request failed";
+    try {
+      const parsed = JSON.parse(errorText);
+      errorMessage = parsed?.message || errorText || "Request failed";
+    } catch {
+      errorMessage = errorText || "Request failed";
+    }
+    throw new Error(errorMessage);
   }
 
   if (response.status === 204) {

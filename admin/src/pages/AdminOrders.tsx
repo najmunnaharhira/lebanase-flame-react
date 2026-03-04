@@ -1,10 +1,10 @@
-import { Package } from "lucide-react";
+import { Package, Printer } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AdminHeader } from "@/components/AdminHeader";
 import { clearAdminSession, getAdminAuthHeaders, hasAdminSession } from "@/lib/adminAuth";
 import { demoOrders } from "@/lib/adminDemoData";
-import { API_BASE_URL, apiRequest } from "@/lib/api";
+import { API_BASE_URL, DEFAULT_BUSINESS_NAME, apiRequest } from "@/lib/api";
 import { OrderRecord } from "@/types/order";
 
 const STATUS_OPTIONS = [
@@ -123,6 +123,83 @@ const AdminOrders = () => {
     navigate("/admin");
   };
 
+  const handlePrint = (order: OrderRecord) => {
+    const orderId = order._id.slice(-8).toUpperCase();
+    const date = new Date(order.createdAt).toLocaleString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+    const customer = order.address?.fullName || order.email || "Customer";
+    const phone = order.address?.phone || "";
+    const addressLines = [
+      order.address?.line1,
+      order.address?.line2,
+      order.address?.city,
+      order.address?.postcode,
+    ].filter(Boolean).join(", ");
+
+    const itemRows = order.items.map((item) =>
+      `<tr>
+        <td style="padding:2px 4px">${item.menuItem.name}</td>
+        <td style="text-align:center;padding:2px 4px">x${item.quantity}</td>
+        <td style="text-align:right;padding:2px 4px">£${(item.menuItem.price * item.quantity).toFixed(2)}</td>
+      </tr>`
+    ).join("");
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Order Receipt #${orderId}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: monospace; font-size: 13px; width: 280px; margin: 0 auto; padding: 12px; }
+    h1 { font-size: 16px; text-align: center; font-weight: bold; margin-bottom: 2px; }
+    .center { text-align: center; }
+    .divider { border-top: 1px dashed #000; margin: 6px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    .total-row td { font-weight: bold; font-size: 14px; padding-top: 4px; }
+    .label { color: #555; }
+    @media print { @page { margin: 6mm; } }
+  </style>
+</head>
+<body>
+  <h1>${DEFAULT_BUSINESS_NAME}</h1>
+  <p class="center" style="font-size:11px">Order Receipt</p>
+  <div class="divider"></div>
+  <p><span class="label">Order:</span> #${orderId}</p>
+  <p><span class="label">Date:</span> ${date}</p>
+  <p><span class="label">Customer:</span> ${customer}</p>
+  ${phone ? `<p><span class="label">Phone:</span> ${phone}</p>` : ""}
+  ${order.deliveryMode === "delivery" && addressLines ? `<p><span class="label">Delivery to:</span> ${addressLines}</p>` : `<p><span class="label">Mode:</span> ${order.deliveryMode || "collection"}</p>`}
+  <div class="divider"></div>
+  <table>
+    ${itemRows}
+  </table>
+  <div class="divider"></div>
+  <table>
+    <tr class="total-row">
+      <td>TOTAL</td>
+      <td></td>
+      <td style="text-align:right">£${order.total.toFixed(2)}</td>
+    </tr>
+  </table>
+  <div class="divider"></div>
+  <p><span class="label">Payment:</span> ${order.paymentMethod || "—"} · ${getPaymentLabel(order.paymentStatus)}</p>
+  <p><span class="label">Status:</span> ${order.status}</p>
+  <div class="divider"></div>
+  <p class="center" style="margin-top:6px">Thank you for your order!</p>
+  <script>window.onload = function(){ window.print(); }<\/script>
+</body>
+</html>`;
+
+    const popup = window.open("", "_blank", "width=340,height=600");
+    if (popup) {
+      popup.document.write(html);
+      popup.document.close();
+    }
+  };
+
   const getSummary = (order: OrderRecord) => {
     const topItems = order.items.slice(0, 2);
     const parts = topItems.map((item) => `${item.menuItem.name} x ${item.quantity}`);
@@ -208,6 +285,14 @@ const AdminOrders = () => {
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  title="Print receipt"
+                  onClick={() => handlePrint(order)}
+                  className="h-10 w-10 flex items-center justify-center rounded-md border border-input bg-background hover:bg-muted transition-colors"
+                >
+                  <Printer className="h-4 w-4 text-muted-foreground" />
+                </button>
               </div>
             </div>
           </div>

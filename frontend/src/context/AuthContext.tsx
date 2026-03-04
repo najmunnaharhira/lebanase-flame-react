@@ -84,11 +84,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return result.user;
     },
     signInWithGoogle: async () => {
-      try {
-        const provider = new GoogleAuthProvider();
-        provider.setCustomParameters({ prompt: "select_account" });
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
 
-        const result = await signInWithPopup(auth, provider);
+      // Step 1: Firebase popup — handle popup-specific errors separately
+      let result;
+      try {
+        result = await signInWithPopup(auth, provider);
+      } catch (error) {
+        throw new Error(mapGoogleAuthError(error));
+      }
+
+      // Step 2: Sync with backend — if this fails, clean up the Firebase session
+      try {
         const credential = GoogleAuthProvider.credentialFromResult(result);
         const idToken = String(credential?.idToken || "").trim();
         const firebaseIdToken = await result.user.getIdToken();
@@ -120,6 +128,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         return result.user;
       } catch (error) {
+        // Backend sync failed — sign out of Firebase to keep state consistent
+        try { await signOut(auth); } catch {}
         throw new Error(mapGoogleAuthError(error));
       }
     },
