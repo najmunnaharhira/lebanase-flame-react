@@ -1,4 +1,5 @@
 import logo from "@/assets/logo.png";
+import { getAdminRole } from "@/lib/adminAuth";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ interface AdminHeaderProps {
 export const AdminHeader = ({ title, subtitle, onLogout, isDemoMode = false }: AdminHeaderProps) => {
   const [logoSrc, setLogoSrc] = useState(logo);
   const [businessName, setBusinessName] = useState(DEFAULT_BUSINESS_NAME);
+  const adminRole = getAdminRole();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -85,6 +87,11 @@ export const AdminHeader = ({ title, subtitle, onLogout, isDemoMode = false }: A
         <Button variant="outline" asChild>
           <Link to="/admin/promotions">Promotions</Link>
         </Button>
+        {adminRole === "admin" && (
+          <Button variant="outline" asChild>
+            <Link to="/admin/whatsapp">WhatsApp</Link>
+          </Button>
+        )}
         <Button variant="outline" asChild>
           <Link to="/admin/payments">Payments</Link>
         </Button>

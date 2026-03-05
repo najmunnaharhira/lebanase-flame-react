@@ -8,6 +8,7 @@ import AdminPayments from "./pages/AdminPayments";
 import AdminPromotions from "./pages/AdminPromotions";
 import AdminSettings from "./pages/AdminSettings";
 import AdminUsers from "./pages/AdminUsers";
+import AdminWhatsApp from "./pages/AdminWhatsApp";
 import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
@@ -33,6 +34,7 @@ const App = () => (
         <Route path="/admin/settings" element={<AdminSettings />} />
         <Route path="/admin/payments" element={<AdminPayments />} />
         <Route path="/admin/promotions" element={<AdminPromotions />} />
+        <Route path="/admin/whatsapp" element={<AdminWhatsApp />} />
         <Route path="/admin/logs" element={<AdminActivityLogs />} />
       </Route>
 

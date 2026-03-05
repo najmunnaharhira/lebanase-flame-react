@@ -2168,6 +2168,23 @@ const toE164 = (phone) => {
   return "+" + digits;
 };
 
+const normalizeContentVariables = (value) => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object") return null;
+      return JSON.stringify(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object") return null;
+  return JSON.stringify(value);
+};
+
 const sendSmsNotification = async ({ phone, message }) => {
   if (!phone || !message) return;
   const to = toE164(phone);
@@ -2190,6 +2207,7 @@ const sendSmsNotification = async ({ phone, message }) => {
 const sendWhatsAppNotification = async ({
   phone,
   message,
+  contentSid,
   contentVariables,
 }) => {
   if (!phone) return;
@@ -2204,12 +2222,14 @@ const sendWhatsAppNotification = async ({
     from,
     to: "whatsapp:" + to,
   };
-  if (twilioWhatsAppContentSid && contentVariables) {
-    payload.contentSid = twilioWhatsAppContentSid;
-    payload.contentVariables =
-      typeof contentVariables === "string"
-        ? contentVariables
-        : JSON.stringify(contentVariables);
+  const resolvedContentSid =
+    typeof contentSid === "string" && contentSid.trim().length > 0
+      ? contentSid.trim()
+      : twilioWhatsAppContentSid;
+  const normalizedContentVariables = normalizeContentVariables(contentVariables);
+  if (resolvedContentSid && normalizedContentVariables) {
+    payload.contentSid = resolvedContentSid;
+    payload.contentVariables = normalizedContentVariables;
   } else {
     payload.body = message || "";
   }
@@ -2219,6 +2239,86 @@ const sendWhatsAppNotification = async ({
     console.error("[whatsapp-error]", err.message || err);
   }
 };
+
+app.post(
+  "/admin/notifications/whatsapp/template",
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const { to, contentSid, contentVariables } = req.body || {};
+
+      if (typeof to !== "string" || to.trim().length === 0) {
+        return res.status(400).json({ message: "'to' is required" });
+      }
+
+      const finalContentSid =
+        typeof contentSid === "string" && contentSid.trim().length > 0
+          ? contentSid.trim()
+          : twilioWhatsAppContentSid;
+
+      if (!finalContentSid) {
+        return res
+          .status(400)
+          .json({ message: "TWILIO_WHATSAPP_CONTENT_SID is not configured" });
+      }
+
+      if (
+        contentVariables === undefined ||
+        contentVariables === null ||
+        (typeof contentVariables === "string" &&
+          contentVariables.trim().length === 0)
+      ) {
+        return res.status(400).json({
+          message:
+            "'contentVariables' is required (object or JSON string)",
+        });
+      }
+
+      if (!twilioClient) {
+        return res
+          .status(400)
+          .json({ message: "Twilio is not configured on server" });
+      }
+
+      const normalizedTo = toE164(to);
+      if (!normalizedTo) {
+        return res
+          .status(400)
+          .json({ message: "'to' must be a valid phone number" });
+      }
+
+      const normalizedVariables = normalizeContentVariables(contentVariables);
+      if (!normalizedVariables) {
+        return res.status(400).json({
+          message:
+            "'contentVariables' must be a valid JSON object or object value",
+        });
+      }
+      const from =
+        "whatsapp:" + twilioWhatsAppFrom.replace(/^whatsapp:/i, "");
+
+      const payload = {
+        from,
+        to: "whatsapp:" + normalizedTo,
+        contentSid: finalContentSid,
+        contentVariables: normalizedVariables,
+      };
+
+      const twilioMessage = await twilioClient.messages.create(payload);
+
+      return res.json({
+        success: true,
+        sid: twilioMessage.sid,
+        status: twilioMessage.status,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to send WhatsApp template",
+        error: error?.message || "Unknown error",
+      });
+    }
+  },
+);
 
 const smtpHost = process.env.SMTP_HOST;
 const smtpPort = Number(process.env.SMTP_PORT || 0);

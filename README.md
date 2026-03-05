@@ -191,6 +191,57 @@ If you also want to run MySQL migration as part of the smoke check:
 npm run smoke:prod:db
 ```
 
+## Twilio WhatsApp template notification (admin)
+
+Set these variables in the root `.env` / `.env.production`:
+
+```env
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_twilio_auth_token
+TWILIO_WHATSAPP_FROM=+14155238886
+TWILIO_WHATSAPP_CONTENT_SID=HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Admin users can send a WhatsApp template message via:
+
+```http
+POST /admin/notifications/whatsapp/template
+```
+
+Request body example:
+
+```json
+{
+	"to": "+8801761575642",
+	"contentSid": "HXb5b62575e6e4ff6129ad7c8efe1f983e",
+	"contentVariables": { "1": "12/1", "2": "3pm" }
+}
+```
+
+If `contentSid` is omitted in the request, the backend uses `TWILIO_WHATSAPP_CONTENT_SID`.
+
+## Hostinger VPS deployment (production)
+
+This repository includes ready-to-use Hostinger deployment assets:
+
+- `deploy/hostinger/deploy.sh` → first-time server setup + deploy
+- `deploy/hostinger/update.sh` → future updates (pull + build + migrate + reload)
+- `deploy/hostinger/nginx.lebaneseflames.co.uk.conf` → Nginx config template
+- `deploy/hostinger/README.md` → step-by-step instructions
+
+Typical first deployment flow:
+
+```sh
+# on VPS
+cd /var/www
+git clone https://github.com/najmunnaharhira/lebanase-flame-react.git app
+cd app
+
+# edit deploy script values first (domain/email/passwords)
+chmod +x deploy/hostinger/deploy.sh
+./deploy/hostinger/deploy.sh
+```
+
 ## Common Errors
 
 ### `Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'stripe'`
