@@ -28,11 +28,12 @@ interface SendHistoryRow {
 const HISTORY_STORAGE_KEY = "lf_admin_whatsapp_history";
 
 const AdminWhatsApp = () => {
+    const [customUrl, setCustomUrl] = useState("https://example.com/demo");
   const navigate = useNavigate();
-  const [to, setTo] = useState("+8801761575642");
-  const [contentSid, setContentSid] = useState("");
+  const [to, setTo] = useState("+12345678901");
+  const [contentSid, setContentSid] = useState("HX1234567890abcdef1234567890abcdef");
   const [contentVariablesText, setContentVariablesText] = useState(
-    '{"1":"12/1","2":"3pm"}',
+    '{"1":"Demo Date","2":"Demo Time"}',
   );
   const [isSending, setIsSending] = useState(false);
   const [message, setMessage] = useState("");
@@ -80,6 +81,7 @@ const AdminWhatsApp = () => {
     setMessage("");
     setError("");
 
+
     let parsedVariables: Record<string, string>;
     try {
       const parsed = JSON.parse(contentVariablesText);
@@ -87,6 +89,10 @@ const AdminWhatsApp = () => {
         throw new Error("contentVariables must be a JSON object");
       }
       parsedVariables = parsed as Record<string, string>;
+      // Add customUrl to variables if provided
+      if (customUrl.trim()) {
+        parsedVariables.url = customUrl.trim();
+      }
     } catch {
       setError("contentVariables must be valid JSON object text");
       return;
@@ -173,6 +179,18 @@ const AdminWhatsApp = () => {
           </div>
 
           <form className="space-y-4" onSubmit={handleSend}>
+            <div className="space-y-2">
+              <Label htmlFor="wa-custom-url">Custom URL (optional)</Label>
+              <Input
+                id="wa-custom-url"
+                placeholder="https://example.com/demo"
+                value={customUrl}
+                onChange={(event) => setCustomUrl(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                This URL will be added to the content variables as <code>url</code>.
+              </p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="wa-to">To (phone)</Label>
               <Input

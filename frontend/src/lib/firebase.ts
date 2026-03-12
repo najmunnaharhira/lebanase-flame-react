@@ -3,14 +3,14 @@ import { getAuth } from "firebase/auth";
 import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  apiKey: "AIzaSyA3Q5LOkRRyPI12Jg2guK3HMXxcibPx6jo",
+  authDomain: "uk-restuart.firebaseapp.com",
+  databaseURL: "https://uk-restuart-default-rtdb.firebaseio.com",
+  projectId: "uk-restuart",
+  storageBucket: "uk-restuart.firebasestorage.app",
+  messagingSenderId: "900477608367",
+  appId: "1:900477608367:web:1ca928365ffc4711bf4f5a",
+  measurementId: "G-98F9RFC8QX"
 };
 
 const app = initializeApp(firebaseConfig);

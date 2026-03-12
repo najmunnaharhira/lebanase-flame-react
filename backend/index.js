@@ -21,9 +21,11 @@ import { verifyFirebaseToken } from "./config/firebaseAdmin.js";
 import { sanitizeInput } from "./middleware/sanitizeInput.js";
 import { mysqlPool, testMySqlConnection } from "./mysql/connection.js";
 
+
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
-// __filename and __dirname already declared above for dotenv
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 dotenv.config({ path: resolve(__dirname, ".env") });
 
 const app = express();
