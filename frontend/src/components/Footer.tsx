@@ -117,12 +117,12 @@ export const Footer = () => {
             © 2024 {businessName}. All rights reserved.
           </p>
           <div className="flex gap-6">
-            <a href="#" className="text-cream/50 hover:text-cream text-sm font-body transition-colors">
+            <Link to="/privacy-policy" className="text-cream/50 hover:text-cream text-sm font-body transition-colors">
               Privacy Policy
-            </a>
-            <a href="#" className="text-cream/50 hover:text-cream text-sm font-body transition-colors">
+            </Link>
+            <Link to="/terms-and-conditions" className="text-cream/50 hover:text-cream text-sm font-body transition-colors">
               Terms & Conditions
-            </a>
+            </Link>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-cream/50">
             <span className="rounded-full border border-cream/20 px-2 py-1">Food Hygiene: 5 - Very Good</span>

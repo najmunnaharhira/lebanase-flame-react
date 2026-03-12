@@ -117,6 +117,17 @@ export const menuItems: MenuItem[] = [
     isVegetarian: true,
     isVegan: true,
   },
+  // Sample item with Google Drive image link
+  {
+    id: "cs-gdrive",
+    name: "Google Drive Special",
+    description: "Menu item with image from Google Drive.",
+    price: 8.99,
+    image: "https://drive.google.com/uc?export=view&id=1AbCDefGhIJKlmnOPQ", // Replace with your real image ID
+    category: "cold-starters",
+    isVegetarian: true,
+    isVegan: false,
+  },
   {
     id: "cs-5",
     name: "Lebanese Salad",
