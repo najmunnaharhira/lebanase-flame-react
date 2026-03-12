@@ -125,7 +125,7 @@ export const Footer = () => {
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-cream/50">
-            <span className="rounded-full border border-cream/20 px-2 py-1">Food Hygiene: 5 - Very Good</span>
+            {/* <span className="rounded-full border border-cream/20 px-2 py-1">Food Hygiene: 5 - Very Good</span> */}
             <span className="rounded-full border border-cream/20 px-2 py-1">Secure & Trusted</span>
           </div>
         </div>

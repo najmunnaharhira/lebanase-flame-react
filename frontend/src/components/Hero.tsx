@@ -37,7 +37,7 @@ export const Hero = () => {
                 4.9 Rating
               </span>
               <span className="inline-flex items-center gap-1.5 bg-white/15 text-cream px-3 py-1.5 rounded-full text-sm font-medium">
-                5★ Hygiene Rated
+                {/* 5★ Hygiene Rated */}
               </span>
             </div>
 

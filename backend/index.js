@@ -121,7 +121,7 @@ const allowedImageMimeTypes = ["image/jpeg", "image/png", "image/webp"];
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 2 * 1024 * 1024,
+    fileSize: 15 * 1024 * 1024,
   },
   fileFilter: (_req, file, callback) => {
     if (!allowedImageMimeTypes.includes(file.mimetype)) {

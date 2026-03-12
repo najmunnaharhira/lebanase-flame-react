@@ -62,7 +62,7 @@ export const AboutChef = () => {
                 </div>
                 <div>
                   <h4 className="font-body font-semibold text-foreground">5★ Rated</h4>
-                  <p className="text-sm text-muted-foreground">Hygiene score</p>
+                  {/* <p className="text-sm text-muted-foreground">Hygiene score</p> */}
                 </div>
               </div>
             </div>

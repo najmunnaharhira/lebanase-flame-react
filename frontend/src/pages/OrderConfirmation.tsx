@@ -26,14 +26,14 @@ const OrderConfirmation = () => {
   }, [orderId]);
 
   return (
-    <style>{`
-      @media print {
-        body * { visibility: hidden !important; }
-        #invoice-print, #invoice-print * { visibility: visible !important; }
-        #invoice-print { position: absolute; left: 0; top: 0; width: 100vw; background: #fff; color: #222; box-shadow: none; border: none; }
-      }
-    `}</style>
     <div className="min-h-screen bg-background">
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #invoice-print, #invoice-print * { visibility: visible !important; }
+          #invoice-print { position: absolute; left: 0; top: 0; width: 100vw; background: #fff; color: #222; box-shadow: none; border: none; }
+        }
+      `}</style>
       <Header />
       <main className="container py-16 text-center">
         <div id="invoice-print" className="max-w-lg mx-auto bg-card rounded-2xl shadow-card p-8">

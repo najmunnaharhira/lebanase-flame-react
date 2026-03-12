@@ -41,9 +41,9 @@ const About = () => {
               <div className="w-14 h-14 bg-olive/10 rounded-xl flex items-center justify-center mx-auto mb-4">
                 <Award className="w-7 h-7 text-olive" />
               </div>
-              <h3 className="font-display font-semibold text-foreground mb-2">5★ Hygiene</h3>
+              {/* <h3 className="font-display font-semibold text-foreground mb-2">5★ Hygiene</h3> */}
               <p className="text-sm text-muted-foreground font-body">
-                Top food safety rating from local council
+                {/* Top food safety rating from local council */}
               </p>
             </div>
             <div className="bg-card rounded-2xl p-6 shadow-card text-center">

@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => ({
   envDir: path.resolve(__dirname, ".."),
   server: {
     host: "::",
-    port: 8080,
+    port: 5174,
     strictPort: true,
     hmr: {
       overlay: false,
