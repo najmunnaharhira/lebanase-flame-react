@@ -16,12 +16,15 @@ import rateLimit from "express-rate-limit";
 import sharp from "sharp";
 import twilio from "twilio";
 import { randomUUID } from "crypto";
-import { fileURLToPath } from "url";
+// import { fileURLToPath } from "url";
 import { verifyFirebaseToken } from "./config/firebaseAdmin.js";
 import { sanitizeInput } from "./middleware/sanitizeInput.js";
 import { mysqlPool, testMySqlConnection } from "./mysql/connection.js";
 
-dotenv.config({ path: new URL("../.env", import.meta.url) });
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
+// __filename and __dirname already declared above for dotenv
+dotenv.config({ path: resolve(__dirname, ".env") });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -101,8 +104,7 @@ const apiLimiter = rateLimit({
 app.use("/auth", apiLimiter);
 app.use("/payments", apiLimiter);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __filename and __dirname already declared above for dotenv
 const uploadDir = process.env.UPLOAD_DIR || "uploads";
 const uploadsPath = path.join(__dirname, uploadDir);
 

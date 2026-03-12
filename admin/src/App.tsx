@@ -9,6 +9,8 @@ import AdminPromotions from "./pages/AdminPromotions";
 import AdminSettings from "./pages/AdminSettings";
 import AdminUsers from "./pages/AdminUsers";
 import AdminWhatsApp from "./pages/AdminWhatsApp";
+import EditorDashboard from "./pages/EditorDashboard";
+import ModeratorDashboard from "./pages/ModeratorDashboard";
 import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 
@@ -17,7 +19,14 @@ const App = () => (
     <Routes>
       <Route path="/" element={<AdminLogin />} />
       <Route path="/admin" element={<AdminLogin />} />
+
       <Route path="/admin/login" element={<AdminLogin />} />
+      <Route element={<ProtectedAdminRoute roles={["editor"]} />}>
+        <Route path="/editor" element={<EditorDashboard />} />
+      </Route>
+      <Route element={<ProtectedAdminRoute roles={["moderator"]} />}>
+        <Route path="/lmoderstor" element={<ModeratorDashboard />} />
+      </Route>
 
       <Route element={<ProtectedAdminRoute roles={["admin", "manager", "moderator", "editor"]} />}>
         <Route path="/admin/orders" element={<AdminOrders />} />

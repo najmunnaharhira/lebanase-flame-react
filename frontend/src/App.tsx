@@ -7,6 +7,8 @@ import Contact from "./pages/Contact";
 import Index from "./pages/Index";
 import Menu from "./pages/Menu";
 import NotFound from "./pages/NotFound";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsAndConditions from "./pages/TermsAndConditions";
 import OfferPopup from "@/components/OfferPopup";
 import OrderConfirmation from "./pages/OrderConfirmation";
 import OrderTracking from "./pages/OrderTracking";
@@ -42,6 +44,8 @@ const App = () => (
               <Route path="/profile" element={<Profile />} />
               <Route path="/about" element={<About />} />
               <Route path="/contact" element={<Contact />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -79,7 +79,14 @@ const AdminLogin = () => {
         user: response.user,
         permissions: response.permissions || [],
       });
-      navigate("/admin/orders");
+      // Redirect based on role
+      if (response.user.role === "editor") {
+        navigate("/editor");
+      } else if (response.user.role === "moderator") {
+        navigate("/lmoderstor");
+      } else {
+        navigate("/admin/orders");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid admin credentials.");
     }
@@ -115,7 +122,14 @@ const AdminLogin = () => {
         user: response.user,
         permissions: response.permissions || [],
       });
-      navigate("/admin/orders");
+      // Redirect based on role
+      if (response.user.role === "editor") {
+        navigate("/editor");
+      } else if (response.user.role === "moderator") {
+        navigate("/lmoderstor");
+      } else {
+        navigate("/admin/orders");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed.");
     } finally {
