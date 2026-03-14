@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import { Clock, Star, Store } from "lucide-react";
+import { Clock, Store } from "lucide-react";
 import heroImage from "@/assets/hero-food.jpg";
 import { DeliveryToggle } from "@/components/DeliveryToggle";
 import { useBusinessName } from "@/hooks/useBusinessName";
@@ -31,15 +31,6 @@ export const Hero = () => {
       <div className="relative container py-14 md:py-20 lg:py-24">
         <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-start">
           <div className="max-w-xl animate-fade-in">
-            <div className="flex flex-wrap gap-3 mb-6">
-              <span className="inline-flex items-center gap-1.5 bg-white/15 text-cream px-3 py-1.5 rounded-full text-sm font-medium">
-                <Star className="w-4 h-4 fill-gold text-gold" />
-                4.9 Rating
-              </span>
-              <span className="inline-flex items-center gap-1.5 bg-white/15 text-cream px-3 py-1.5 rounded-full text-sm font-medium">
-                {/* 5★ Hygiene Rated */}
-              </span>
-            </div>
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-cream leading-tight mb-4">
               {businessName}

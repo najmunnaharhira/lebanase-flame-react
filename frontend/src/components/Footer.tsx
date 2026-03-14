@@ -85,6 +85,12 @@ export const Footer = () => {
                   <span className="block">Monday to Sunday: 12:00pm - 11:00pm</span>
                 </div>
               </li>
+              <li className="flex items-center gap-3 text-cream/70">
+                <Clock className="w-4 h-4 text-flame" />
+                <div>
+                  <span className="block">Friday: 2:00pm - 11:00pm</span>
+                </div>
+              </li>
             </ul>
           </div>
         </div>
@@ -114,7 +120,7 @@ export const Footer = () => {
         {/* Bottom */}
         <div className="border-t border-cream/10 mt-10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-cream/50 text-sm font-body">
-            © 2024 {businessName}. All rights reserved.
+            © 2026 Lebanese Flames. All rights reserved.
           </p>
           <div className="flex gap-6">
             <Link to="/privacy-policy" className="text-cream/50 hover:text-cream text-sm font-body transition-colors">
