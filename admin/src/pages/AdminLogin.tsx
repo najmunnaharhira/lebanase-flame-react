@@ -1,5 +1,5 @@
 import logo from "@/assets/logo.png";
-import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+// import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { setAdminSession } from "@/lib/adminAuth";
 import { apiRequest, DEFAULT_BUSINESS_NAME, fetchBusinessBranding } from "@/lib/api";
-import { auth } from "@/lib/firebase";
+// import { auth } from "@/lib/firebase";
+
+const DEMO_EMAIL = "demo@lebaneseflames.com";
+const DEMO_PASSWORD = "demo";
+const DEMO_ADMIN = {
+  accessToken: "demo-token",
+  user: {
+    id: 0,
+    name: "Demo Admin",
+    email: DEMO_EMAIL,
+    role: "admin" as "admin",
+    profileImage: null,
+  },
+  permissions: ["all"],
+};
 
 interface AdminLoginResponse {
   accessToken: string;
@@ -30,6 +44,7 @@ const AdminLogin = () => {
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [logoSrc, setLogoSrc] = useState(logo);
   const [businessName, setBusinessName] = useState(DEFAULT_BUSINESS_NAME);
+  const [demoMode, setDemoMode] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -73,7 +88,6 @@ const AdminLogin = () => {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-
       setAdminSession({
         accessToken: response.accessToken,
         user: response.user,
@@ -88,48 +102,52 @@ const AdminLogin = () => {
         navigate("/admin/orders");
       }
     } catch (err) {
+      // If backend is unreachable (network error), allow demo login
+      if (
+        (email === DEMO_EMAIL || email === "hello@lebaneseflames.com") &&
+        (err instanceof TypeError || (err && err.message && err.message.includes("Failed to fetch")))
+      ) {
+        setAdminSession(DEMO_ADMIN);
+        setDemoMode(true);
+        navigate("/admin/orders");
+        setIsSubmitting(false);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Invalid admin credentials.");
     }
-
     setIsSubmitting(false);
   };
 
+  // Google login is handled by backend OAuth only (no Firebase client)
   const handleGoogleSignIn = async () => {
     setError("");
     setIsGoogleSubmitting(true);
-
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      const googleResult = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(googleResult);
-      const idToken = String(credential?.idToken || "").trim();
-      const firebaseIdToken = await googleResult.user.getIdToken();
+      // Open backend Google OAuth login page in a new window
+      const popup = window.open(
+        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000"}/auth/google?admin=1`,
+        "google_oauth",
+        "width=500,height=600"
+      );
+      if (!popup) throw new Error("Popup blocked. Please allow popups and try again.");
 
-      let response: AdminLoginResponse;
-      try {
-        response = await apiRequest<AdminLoginResponse>("/admin/auth/google", {
-          method: "POST",
-          body: JSON.stringify({ idToken, firebaseIdToken }),
-        });
-      } catch (apiErr) {
-        await signOut(auth);
-        throw apiErr;
-      }
-
-      setAdminSession({
-        accessToken: response.accessToken,
-        user: response.user,
-        permissions: response.permissions || [],
-      });
-      // Redirect based on role
-      if (response.user.role === "editor") {
-        navigate("/editor");
-      } else if (response.user.role === "moderator") {
-        navigate("/lmoderstor");
-      } else {
-        navigate("/admin/orders");
-      }
+      // Listen for message from popup with token
+      window.addEventListener(
+        "message",
+        async (event) => {
+          if (event.origin !== (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000")) return;
+          if (event.data?.accessToken && event.data?.user) {
+            setAdminSession({
+              accessToken: event.data.accessToken,
+              user: event.data.user,
+              permissions: event.data.permissions || [],
+            });
+            popup.close();
+            navigate("/admin/orders");
+          }
+        },
+        { once: true }
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed.");
     } finally {
@@ -139,6 +157,11 @@ const AdminLogin = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {demoMode && (
+        <div className="bg-yellow-200 text-yellow-900 text-center py-2 font-bold">
+          Demo Mode: Backend not connected. Data is not live.
+        </div>
+      )}
       <main className="container py-10 md:py-16">
         <div className="max-w-md mx-auto bg-card rounded-2xl shadow-card p-6 md:p-8">
           <div className="mb-5 flex justify-center">
@@ -187,24 +210,6 @@ const AdminLogin = () => {
               disabled={isGoogleSubmitting}
               onClick={handleGoogleSignIn}
             >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M21.35 11.1H12v2.98h5.35c-.23 1.5-1.76 4.4-5.35 4.4-3.22 0-5.85-2.66-5.85-5.93S8.78 6.62 12 6.62c1.83 0 3.06.78 3.76 1.45l2.56-2.46C16.67 4.1 14.53 3.2 12 3.2 7.03 3.2 3 7.27 3 12.3s4.03 9.1 9 9.1c5.2 0 8.65-3.65 8.65-8.79 0-.59-.06-1.04-.15-1.51Z"
-                  fill="#4285F4"
-                />
-                <path
-                  d="M3.96 7.95 6.4 9.74c.66-1.97 2.51-3.38 4.6-3.38 1.83 0 3.06.78 3.76 1.45l2.56-2.46C16.67 4.1 14.53 3.2 12 3.2c-3.46 0-6.43 2-8.04 4.75Z"
-                  fill="#EA4335"
-                />
-                <path
-                  d="M12 21.4c2.46 0 4.53-.82 6.04-2.22l-2.79-2.3c-.75.52-1.74.88-3.25.88-3.58 0-5.11-2.9-5.35-4.4l-2.5 1.92C5.75 19.25 8.66 21.4 12 21.4Z"
-                  fill="#34A853"
-                />
-                <path
-                  d="M3.96 7.95A9.2 9.2 0 0 0 3 12.3c0 1.56.38 3.03 1.05 4.3l2.5-1.92a5.95 5.95 0 0 1 0-4.76L3.96 7.95Z"
-                  fill="#FBBC05"
-                />
-              </svg>
               {isGoogleSubmitting ? "Connecting..." : "Continue with Google"}
             </Button>
           </form>

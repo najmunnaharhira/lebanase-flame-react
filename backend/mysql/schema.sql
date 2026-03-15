@@ -226,8 +226,37 @@ CREATE TABLE IF NOT EXISTS abandoned_carts (
   INDEX idx_abandoned_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+CREATE TABLE IF NOT EXISTS social_links (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  platform VARCHAR(50) NOT NULL,
+  url VARCHAR(500) NOT NULL,
+  icon VARCHAR(50) DEFAULT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_social_links_platform (platform),
+  INDEX idx_social_links_active (is_active),
+  INDEX idx_social_links_sort (sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS frontend_sections (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  section_key VARCHAR(100) NOT NULL UNIQUE,
+  title VARCHAR(191) NOT NULL,
+  content TEXT DEFAULT NULL,
+  settings JSON DEFAULT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_frontend_sections_active (is_active),
+  INDEX idx_frontend_sections_sort (sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT IGNORE INTO roles (role_name, description, permissions) VALUES
-  ('admin', 'Full administrative access', JSON_ARRAY('users.manage','roles.assign','dashboard.full','payments.manage','content.manage','reports.manage','settings.manage')),
+  ('admin', 'Full administrative access', JSON_ARRAY('users.manage','roles.assign','dashboard.full','payments.manage','content.manage','reports.manage','settings.manage','social_links.manage','sections.manage')),
   ('manager', 'Manages editors and operations with limited user administration', JSON_ARRAY('users.manage_limited','roles.assign_editor','dashboard.full','content.manage','reports.manage','promotions.manage')),
   ('moderator', 'Can moderate submitted content and manage reports', JSON_ARRAY('content.review','reports.manage','dashboard.read')),
   ('editor', 'Can add and edit content and media', JSON_ARRAY('content.create','content.edit','media.upload','dashboard.read')),

@@ -3,6 +3,7 @@ import { Hero } from "@/components/Hero";
 import { MenuHighlights } from "@/components/MenuHighlights";
 import { AboutUs } from "@/components/AboutUs";
 import { AboutChef } from "@/components/AboutChef";
+import { DynamicSections } from "@/components/DynamicSections";
 import { Footer } from "@/components/Footer";
 import { StickyCartBar } from "@/components/StickyCartBar";
 
@@ -18,6 +19,7 @@ const Index = () => {
 
         <AboutUs />
         <AboutChef />
+        <DynamicSections />
       </main>
 
       <Footer />

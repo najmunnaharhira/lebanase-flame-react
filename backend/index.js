@@ -1,3 +1,118 @@
+// --- Admin Social Links API ---
+// List all social links
+app.get("/admin/social-links", requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await mysqlPool.query(
+      "SELECT * FROM social_links ORDER BY sort_order ASC, id ASC"
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to load social links" });
+  }
+});
+
+// Create a new social link
+app.post("/admin/social-links", requireAdmin, async (req, res) => {
+  const { platform, url, icon, is_active, sort_order } = req.body || {};
+  if (!platform || !url) {
+    return res.status(400).json({ message: "Platform and URL are required" });
+  }
+  try {
+    const [result] = await mysqlPool.query(
+      `INSERT INTO social_links (platform, url, icon, is_active, sort_order) VALUES (?, ?, ?, ?, ?)`,
+      [platform, url, icon || null, is_active ? 1 : 0, sort_order || 0]
+    );
+    const [rows] = await mysqlPool.query("SELECT * FROM social_links WHERE id = ?", [result.insertId]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to create social link" });
+  }
+});
+
+// Update a social link
+app.put("/admin/social-links/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { platform, url, icon, is_active, sort_order } = req.body || {};
+  try {
+    await mysqlPool.query(
+      `UPDATE social_links SET platform=?, url=?, icon=?, is_active=?, sort_order=? WHERE id=?`,
+      [platform, url, icon || null, is_active ? 1 : 0, sort_order || 0, id]
+    );
+    const [rows] = await mysqlPool.query("SELECT * FROM social_links WHERE id = ?", [id]);
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update social link" });
+  }
+});
+
+// Delete a social link
+app.delete("/admin/social-links/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await mysqlPool.query("DELETE FROM social_links WHERE id = ?", [id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete social link" });
+  }
+});
+
+// --- Admin Frontend Sections API ---
+// List all frontend sections
+app.get("/admin/sections", requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await mysqlPool.query(
+      "SELECT * FROM frontend_sections ORDER BY sort_order ASC, id ASC"
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to load sections" });
+  }
+});
+
+// Create a new section
+app.post("/admin/sections", requireAdmin, async (req, res) => {
+  const { section_key, title, content, settings, is_active, sort_order } = req.body || {};
+  if (!section_key || !title) {
+    return res.status(400).json({ message: "Section key and title are required" });
+  }
+  try {
+    const [result] = await mysqlPool.query(
+      `INSERT INTO frontend_sections (section_key, title, content, settings, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
+      [section_key, title, content || null, settings ? JSON.stringify(settings) : null, is_active ? 1 : 0, sort_order || 0]
+    );
+    const [rows] = await mysqlPool.query("SELECT * FROM frontend_sections WHERE id = ?", [result.insertId]);
+    res.status(201).json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to create section" });
+  }
+});
+
+// Update a section
+app.put("/admin/sections/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { section_key, title, content, settings, is_active, sort_order } = req.body || {};
+  try {
+    await mysqlPool.query(
+      `UPDATE frontend_sections SET section_key=?, title=?, content=?, settings=?, is_active=?, sort_order=? WHERE id=?`,
+      [section_key, title, content || null, settings ? JSON.stringify(settings) : null, is_active ? 1 : 0, sort_order || 0, id]
+    );
+    const [rows] = await mysqlPool.query("SELECT * FROM frontend_sections WHERE id = ?", [id]);
+    res.json(rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update section" });
+  }
+});
+
+// Delete a section
+app.delete("/admin/sections/:id", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await mysqlPool.query("DELETE FROM frontend_sections WHERE id = ?", [id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete section" });
+  }
+});
 import Stripe from "stripe";
 import bcrypt from "bcrypt";
 import cookieParser from "cookie-parser";

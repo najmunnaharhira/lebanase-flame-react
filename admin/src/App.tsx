@@ -7,6 +7,7 @@ import AdminOrders from "./pages/AdminOrders";
 import AdminPayments from "./pages/AdminPayments";
 import AdminPromotions from "./pages/AdminPromotions";
 import AdminSettings from "./pages/AdminSettings";
+import AdminSocialLinksSections from "./pages/AdminSocialLinksSections";
 import AdminUsers from "./pages/AdminUsers";
 import AdminWhatsApp from "./pages/AdminWhatsApp";
 import EditorDashboard from "./pages/EditorDashboard";
@@ -23,6 +24,7 @@ const App = () => (
       <Route path="/admin/login" element={<AdminLogin />} />
       <Route element={<ProtectedAdminRoute roles={["editor"]} />}>
         <Route path="/editor" element={<EditorDashboard />} />
+        <Route path="/admin/social" element={<AdminSocialLinksSections />} />
       </Route>
       <Route element={<ProtectedAdminRoute roles={["moderator"]} />}>
         <Route path="/lmoderstor" element={<ModeratorDashboard />} />
